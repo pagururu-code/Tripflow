@@ -3,3 +3,30 @@
 .upload-box{display:flex;min-height:118px;border:1.5px dashed #b9b3d8;border-radius:20px;align-items:center;justify-content:center;flex-direction:column;gap:5px;background:#faf9ff;margin:14px 0;cursor:pointer}.upload-box small{color:#777}.ticket-preview{width:100%;max-height:260px;object-fit:contain;border-radius:16px;background:#f2f2f2;margin:0 0 12px}.scan-result{border:1px solid #e7e3f4;border-radius:18px;padding:14px;margin:12px 0;background:#fff}.scan-title{display:flex;gap:8px;align-items:center;margin-bottom:8px}.error-message{background:#fff0f0;color:#9d2828;padding:12px;border-radius:12px}.primary:disabled{opacity:.55}
 
 .schedule-card{cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}.schedule-card:active{transform:scale(.985)}.schedule-card:focus-visible{outline:2px solid #17231d;outline-offset:3px}.schedule-card .icon{position:relative;z-index:2}
+
+/* Day title */
+.day-title{margin:14px 38px 16px;display:flex;align-items:center;gap:12px;min-height:46px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.day-title.filled{padding:16px 18px;border-radius:22px;background:rgba(255,255,255,.72);border:1px solid rgba(20,44,35,.08);box-shadow:0 8px 28px rgba(24,39,32,.05)}
+.day-title.filled>span{font-size:28px;line-height:1}
+.day-title.filled h2{font-size:22px;line-height:1.25;margin:0;flex:1;letter-spacing:-.02em}
+.day-title.filled small{color:#8a8d87;font-size:11px;white-space:nowrap}
+.day-title.empty-title{width:max-content;min-height:36px;padding:6px 10px;margin-top:8px;margin-bottom:10px;border-radius:14px;color:#8a8d87;font-size:13px;border:1px dashed rgba(20,44,35,.2)}
+.day-title.empty-title:hover{background:rgba(255,255,255,.45)}
+.emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin:8px 0 20px}
+.emoji-grid button{aspect-ratio:1;border:1px solid #deded8;background:#f7f6f1;border-radius:13px;font-size:23px;padding:0}
+.emoji-grid button.active{border:2px solid #123126;background:#eaf2ed;transform:scale(1.04)}
+@media(max-width:520px){.day-title{margin-left:38px;margin-right:38px}.emoji-grid{grid-template-columns:repeat(8,1fr);gap:6px}.emoji-grid button{font-size:21px;border-radius:11px}}
+
+/* Mobile form layout fix */
+.modal{overflow-x:hidden}
+.two{min-width:0}
+.two>*{min-width:0;width:100%}
+label{min-width:0}
+input,textarea,select{min-width:0;max-width:100%}
+input[type="date"],input[type="time"],input[type="number"]{width:100%;min-width:0;display:block}
+@media(max-width:420px){
+  .modal{padding-left:18px;padding-right:18px}
+  .two{gap:10px}
+  .two label{margin-top:10px;margin-bottom:10px}
+  input{padding-left:11px;padding-right:11px;font-size:16px}
+}
