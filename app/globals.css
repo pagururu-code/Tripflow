@@ -268,3 +268,26 @@ hr{border-top-color:var(--line)}
   .emoji-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
   .schedule-card h3{font-size:17px}
 }
+
+
+/* Google Maps saved-list import */
+.inbox-actions{display:flex;align-items:center;gap:8px}
+.import-button{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--sage-800);font-size:13px;font-weight:650;box-shadow:0 4px 12px rgba(55,76,57,.05)}
+.import-button:active{background:var(--sage-100)}
+.import-url-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.import-url-row input{min-width:0}
+.paste-button{width:auto;min-height:44px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.import-summary{display:flex;flex-direction:column;gap:4px;margin:22px 0 10px}
+.import-summary b{font-size:15px}
+.import-summary small{color:var(--muted)}
+.import-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;max-height:42vh;overflow:auto;padding-right:2px}
+.import-place{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:16px;background:var(--card);cursor:pointer}
+.import-place>input{position:absolute;opacity:0;pointer-events:none}
+.import-check{width:20px;height:20px;border:1px solid var(--sage-300);border-radius:7px;display:grid;place-items:center;color:transparent;background:#fff}
+.import-place:has(input:checked) .import-check{background:var(--sage-700);border-color:var(--sage-700);color:#fff}
+.import-place-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.import-place-copy b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.import-place-copy small{display:flex;align-items:center;gap:4px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.import-place em{font-style:normal;font-size:11px;color:var(--muted);white-space:nowrap}
+.import-place.duplicate{opacity:.55;cursor:default}
+@media(max-width:420px){.import-button{padding:0 10px}.import-url-row{grid-template-columns:1fr}.paste-button{width:100%;justify-content:center}}
