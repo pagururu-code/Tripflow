@@ -193,3 +193,79 @@ hr{border-top-color:var(--line)}
 .timeline-row.gap-row .time{align-self:center}
 .timeline-row.gap-row .gap-dot{background:var(--sage-300);box-shadow:0 0 0 4px var(--paper)}
 .timeline-row.gap-row:before{bottom:-28px}
+
+/* Compact day-title treatment: no card, no oversized heading */
+.day-title{
+  margin:18px 38px 14px;
+  min-height:30px;
+  gap:8px;
+}
+.day-title.filled{
+  width:max-content;
+  max-width:calc(100% - 76px);
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+  align-items:center;
+}
+.day-title.filled>span{
+  flex:0 0 auto;
+  font-size:17px;
+  line-height:1;
+}
+.day-title.filled h2{
+  flex:0 1 auto;
+  max-width:min(68vw,520px);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:15px;
+  line-height:1.35;
+  font-weight:650;
+  letter-spacing:-.015em;
+  color:var(--ink,#17362b);
+}
+.day-title.filled small{
+  display:none;
+}
+.day-title.empty-title{
+  margin-top:10px;
+  margin-bottom:12px;
+  min-height:30px;
+  padding:4px 0;
+  border:0;
+  border-bottom:1px dashed rgba(96,123,104,.35);
+  border-radius:0;
+  background:transparent;
+  color:#829080;
+  font-size:12px;
+}
+.day-title.empty-title:hover{background:transparent}
+
+/* Slightly lighter and more compact than the previous large-card treatment */
+.summary{gap:12px}
+.summary>div{padding:16px 18px;border-radius:20px}
+.summary b{font-size:20px}
+.schedule-card{border-radius:22px;padding:18px 18px}
+.schedule-card h3{font-size:18px;line-height:1.28}
+.schedule-card p{font-size:14px}
+.type{font-size:11px}
+.gap{min-height:54px;font-size:14px}
+
+.day-title-editor .sub{margin-bottom:18px}
+.day-title-editor .label-help{font-size:11px;font-weight:500;color:#829080;margin-left:5px}
+.emoji-custom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.emoji-custom input{min-width:0}
+.ghost.compact{width:auto;min-height:44px;padding:0 12px;white-space:nowrap}
+.emoji-grid{grid-template-columns:repeat(8,minmax(0,1fr));gap:7px;margin:10px 0 20px}
+.emoji-grid button{min-width:0;aspect-ratio:1;border-radius:12px;font-size:20px}
+
+@media(max-width:520px){
+  .day-title{margin-left:38px;margin-right:38px}
+  .day-title.filled{max-width:calc(100% - 76px)}
+  .day-title.filled h2{font-size:14px;max-width:64vw}
+  .emoji-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .schedule-card h3{font-size:17px}
+}
