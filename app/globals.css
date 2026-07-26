@@ -30,3 +30,159 @@ input[type="date"],input[type="time"],input[type="number"]{width:100%;min-width:
   .two label{margin-top:10px;margin-bottom:10px}
   input{padding-left:11px;padding-right:11px;font-size:16px}
 }
+
+/* TripFlow Sage Matcha Core v2 */
+:root{
+  --sage-50:#f7f8f3;
+  --sage-75:#f2f4ed;
+  --sage-100:#e9eee5;
+  --sage-200:#dbe4d7;
+  --sage-300:#cbd8c6;
+  --sage-400:#b8c7b0;
+  --sage-500:#9fb39a;
+  --sage-600:#7f987b;
+  --sage-700:#5f775d;
+  --sage-800:#3f593f;
+  --sage-900:#263d2b;
+  --paper:#f8f8f3;
+  --card:#fffefa;
+  --line:#dce4d8;
+  --muted:#728071;
+  --shadow:0 10px 30px rgba(55,76,57,.08);
+}
+html,body{
+  background-color:var(--paper);
+  color:var(--sage-900);
+  background-image:radial-gradient(circle,rgba(127,152,123,.18) .7px,transparent .8px);
+  background-size:11px 11px;
+  background-position:0 0;
+}
+body:before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background:linear-gradient(180deg,rgba(248,248,243,.18),rgba(248,248,243,.58));
+  z-index:-1;
+}
+main{background:transparent}
+h1,h2,h3,b,strong,.eyebrow{color:var(--sage-900)}
+header{color:var(--sage-900)}
+header p,.muted,.sub{color:var(--muted)}
+.eyebrow{color:var(--sage-700)}
+.plain,.icon,.close{color:var(--sage-700)}
+.round{background:var(--sage-400);color:#fff;box-shadow:0 8px 20px rgba(95,119,93,.18)}
+.round:active{background:var(--sage-500)}
+.date-strip{scrollbar-width:none}
+.date-strip::-webkit-scrollbar{display:none}
+.date-strip button{
+  background:rgba(233,238,229,.88);
+  color:var(--sage-800);
+  border:1px solid rgba(95,119,93,.04);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7);
+}
+.date-strip button.active{
+  background:var(--sage-400);
+  color:#fff;
+  box-shadow:0 7px 18px rgba(95,119,93,.17);
+}
+.summary>div,.timeline article,.result,.inbox-card,.map-stop,.notice,.menu button,.trip-choice,.scan-result{
+  background:rgba(255,254,250,.94);
+  border:1px solid rgba(95,119,93,.08);
+  box-shadow:var(--shadow);
+}
+.summary>div{border-radius:22px}
+.summary svg{color:var(--sage-700)}
+.summary span{color:var(--sage-800)}
+.summary b{font-size:19px;color:var(--sage-900)}
+.timeline-row:before{
+  content:"";
+  position:absolute;
+  left:69px;
+  top:22px;
+  bottom:-28px;
+  width:1px;
+  background:linear-gradient(var(--sage-300),rgba(203,216,198,.18));
+}
+.timeline-row:last-of-type:before{bottom:12px}
+.time b{color:var(--sage-900)}
+.time span{color:var(--sage-700);opacity:.8}
+.dot{position:relative;z-index:1;background:var(--sage-500);box-shadow:0 0 0 4px var(--paper)}
+.dot.flight,.dot.train,.dot.bus,.dot.hotel,.dot.ticket,.dot.place,.dot.manual{background:var(--sage-500)}
+.type{
+  color:var(--sage-700);
+  opacity:1;
+  background:var(--sage-100);
+  border-radius:999px;
+  padding:3px 7px;
+  display:inline-flex;
+  margin-bottom:6px;
+}
+.timeline p,.result p,.inbox-card p{color:var(--muted)}
+.timeline small,.result small,.transfer{color:#879385}
+.transfer{background:rgba(233,238,229,.58);width:max-content;max-width:100%;padding:5px 9px;border-radius:999px;margin-top:-9px}
+.gap{
+  border-color:var(--sage-300);
+  background:rgba(233,238,229,.40);
+  color:var(--sage-700);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.48);
+}
+.gap:active{background:rgba(219,228,215,.7)}
+.schedule-card{box-shadow:var(--shadow)}
+.schedule-card:focus-visible{outline-color:var(--sage-500)}
+.schedule-card .icon{color:var(--sage-600)}
+.map-stop b{background:var(--sage-500)}
+.inbox-card span{color:var(--sage-700)}
+.empty{color:#899488}
+nav{
+  background:rgba(255,254,250,.92);
+  border-top-color:rgba(95,119,93,.12);
+  box-shadow:0 -8px 26px rgba(55,76,57,.06);
+}
+nav button{color:#879386}
+nav button.active{color:var(--sage-900)}
+.backdrop{background:rgba(38,61,43,.34)}
+.modal{
+  background:var(--sage-50);
+  box-shadow:0 -18px 60px rgba(38,61,43,.14);
+}
+input,textarea,select{
+  color:var(--sage-900);
+  border-color:var(--line);
+  background:rgba(255,254,250,.98);
+  box-shadow:inset 0 1px 2px rgba(55,76,57,.025);
+}
+input:focus,textarea:focus,select:focus{
+  outline:2px solid rgba(159,179,154,.48);
+  border-color:var(--sage-500);
+}
+.primary{background:var(--sage-700);color:#fff;box-shadow:0 7px 18px rgba(95,119,93,.16)}
+.primary:active{background:var(--sage-800)}
+.ghost{background:var(--sage-100);color:var(--sage-800)}
+.menu small,.notice p{color:var(--muted)}
+.trip-choice.active{outline-color:var(--sage-500)}
+hr{border-top-color:var(--line)}
+.upload-box{
+  border-color:var(--sage-300);
+  background:rgba(233,238,229,.45);
+  color:var(--sage-800);
+}
+.ticket-preview{background:var(--sage-100)}
+.scan-result{border-color:var(--line)}
+.day-title.filled{
+  background:rgba(255,254,250,.88);
+  border-color:rgba(95,119,93,.10);
+  box-shadow:var(--shadow);
+}
+.day-title.filled small,.day-title.empty-title{color:#829080}
+.day-title.empty-title{border-color:var(--sage-300);background:rgba(248,248,243,.5)}
+.day-title.empty-title:hover{background:rgba(233,238,229,.56)}
+.emoji-grid button{border-color:var(--line);background:var(--card)}
+.emoji-grid button.active{border-color:var(--sage-600);background:var(--sage-100)}
+.error-message{background:#f8eeee;color:#8b4545}
+@media(max-width:420px){
+  .timeline-row{grid-template-columns:54px 12px minmax(0,1fr)}
+  .timeline-row:before{left:69px}
+  .summary>div{padding:13px 12px}
+  .summary b{font-size:18px}
+}
