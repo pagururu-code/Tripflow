@@ -10,10 +10,12 @@ type ImportedPlace = {
   address?: string;
   location?: { lat: number; lng: number };
   openingHours?: string[];
+  placeType?: string;
   mapUrl?: string;
 };
 
 const normalize = (value = '') => value.toLocaleLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
+const humanizeType = (value = '') => value.split('_').filter(Boolean).map(word => word[0]?.toUpperCase()+word.slice(1)).join(' ');
 
 export default function GoogleMapsImport({
   trip,
@@ -49,6 +51,25 @@ export default function GoogleMapsImport({
     }
   };
 
+  const enrichTypes = async (found: ImportedPlace[]) => {
+    const enriched: ImportedPlace[] = [];
+    for (let index = 0; index < found.length; index += 4) {
+      const chunk = found.slice(index,index+4);
+      const values = await Promise.all(chunk.map(async place => {
+        if (place.placeType) return place;
+        try {
+          const response = await fetch('/api/places/search?q='+encodeURIComponent(place.title));
+          const data = await response.json();
+          const match = data.places?.[0];
+          const label = match?.primaryTypeDisplayName?.text || humanizeType(match?.primaryType || '');
+          return { ...place, placeType: label || undefined };
+        } catch { return place; }
+      }));
+      enriched.push(...values);
+    }
+    return enriched;
+  };
+
   const load = async () => {
     const value = url.trim();
     if (!value) return setError('Google Maps 저장목록 링크를 넣어 주세요.');
@@ -63,7 +84,8 @@ export default function GoogleMapsImport({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '목록을 가져오지 못했어요.');
-      const found: ImportedPlace[] = data.places || [];
+      const raw: ImportedPlace[] = data.places || [];
+      const found = await enrichTypes(raw);
       setPlaces(found);
       setSelected(Object.fromEntries(found.map(place => [place.id, !isDuplicate(place)])));
       if (!found.length) setError('목록에서 장소를 찾지 못했어요. 목록을 공유 가능 상태로 바꾼 뒤 다시 시도해 주세요.');
@@ -86,6 +108,7 @@ export default function GoogleMapsImport({
       address: place.address,
       location: place.location,
       openingHours: place.openingHours,
+      placeType: place.placeType,
       mapUrl: place.mapUrl,
       source: 'google-maps',
     }));
@@ -114,7 +137,7 @@ export default function GoogleMapsImport({
       </label>
 
       <button className="primary full" disabled={loading || !url.trim()} onClick={load}>
-        {loading ? '저장목록 읽는 중…' : '가져오기'}
+        {loading ? '장소 정보 읽는 중…' : '가져오기'}
       </button>
 
       {error && <p className="error-message">{error}</p>}
@@ -123,7 +146,7 @@ export default function GoogleMapsImport({
         <>
           <div className="import-summary">
             <b>{places.length}개의 장소를 찾았어요</b>
-            <small>이미 Inbox에 있는 장소는 자동으로 제외돼요.</small>
+            <small>타입과 요일별 영업시간도 함께 저장돼요.</small>
           </div>
           <div className="import-list">
             {places.map(place => {
@@ -139,6 +162,7 @@ export default function GoogleMapsImport({
                   <span className="import-check"><Check size={14} /></span>
                   <span className="import-place-copy">
                     <b>{place.title}</b>
+                    {place.placeType && <small>🏷️ {place.placeType}</small>}
                     <small><MapPin size={12} />{place.address || '주소 정보 없음'}</small>
                   </span>
                   {duplicate ? <em>이미 있음</em> : place.mapUrl && <ExternalLink size={15} />}
