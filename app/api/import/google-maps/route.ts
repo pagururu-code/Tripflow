@@ -9,18 +9,21 @@ type PlaceResult = {
   mapUrl?: string;
 };
 
-type PlaceCandidate = {
-  title: string;
-  mapUrl?: string;
-};
+type Candidate = { title: string; mapUrl?: string };
 
 const cleanText = (value: string) =>
   value
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(Number.parseInt(code, 16)))
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_, code) => String.fromCharCode(Number.parseInt(code, 16)))
     .replace(/\\u003d/g, '=')
     .replace(/\\u0026/g, '&')
     .replace(/\\u0027/g, "'")
     .replace(/\\u0022/g, '"')
     .replace(/\\n/g, ' ')
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
     .replace(/\+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -28,119 +31,81 @@ const cleanText = (value: string) =>
 const unique = <T,>(items: T[], key: (item: T) => string) => {
   const seen = new Set<string>();
   return items.filter(item => {
-    const value = key(item).toLocaleLowerCase();
+    const value = key(item).normalize('NFKC').toLocaleLowerCase();
     if (!value || seen.has(value)) return false;
     seen.add(value);
     return true;
   });
 };
 
-const isValidPlaceTitle = (rawValue: unknown): rawValue is string => {
-  if (typeof rawValue !== 'string') return false;
-  const value = cleanText(rawValue);
-  if (value.length < 2 || value.length > 160) return false;
-  if (!/[\p{L}\p{N}]/u.test(value)) return false;
-  if (/^[\d\s.,/★☆⭐·•()\-+:%]+$/u.test(value)) return false;
+const isValidPlaceName = (raw: string) => {
+  const title = cleanText(raw);
+  if (title.length < 2 || title.length > 120) return false;
 
-  const rejectedPatterns = [
-    /^별표\s*평점\s*:/i,
-    /^리뷰\s*[\d,.]+\s*개?$/i,
-    /^주소\s*정보\s*없음$/i,
-    /^이미\s*있음$/i,
-    /^\d(?:\.\d)?\s*\/\s*5$/,
-    /^(google|google maps|maps|지도|목록|저장|공유|로그인|검색)$/i,
-  ];
+  // Google Maps UI/accessibility text that must never become a place candidate.
+  if (/^별표\s*평점\s*[:：]?\s*\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
+  if(/^리뷰\s*[\d,.]+\s*개?$/i.test(title)) return false;
+  if (/^\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
+  if (/^(주소\s*정보\s*없음|이미\s*있음|저장됨|저장|공유|길찾기|전화|웹사이트|메뉴|사진|리뷰|개요)$/i.test(title)) return false;
+  if (/^(google|google maps|maps|지도|목록|저장목록|검색|로그인|계정|닫기|열기|더보기)$/i.test(title)) return false;
+  if (/^[\d\s.,:+\-–—_/()\[\]{}★☆⭐·•]+$/.test(title)) return false;
+  if (/^(영업\s*중|영업\s*종료|휴무|곧\s*영업\s*종료|영업시간)/i.test(title)) return false;
+  if (/^(₩|\$|€|¥)+$/.test(title)) return false;
+  if (/^https?:\/\//i.test(title)) return false;
 
-  return !rejectedPatterns.some(pattern => pattern.test(value));
+  return true;
 };
 
-const decodeHtmlEntities = (value: string) =>
-  value
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
-
-const normalizeType = (value: unknown) => (Array.isArray(value) ? value : [value]).filter(Boolean);
-
-const isItemList = (value: unknown) =>
-  normalizeType(value).some(type => typeof type === 'string' && type.toLowerCase() === 'itemlist');
-
-function collectItemLists(node: unknown, output: Record<string, unknown>[], visited = new Set<object>()) {
-  if (!node || typeof node !== 'object') return;
-  if (visited.has(node as object)) return;
-  visited.add(node as object);
-
-  if (Array.isArray(node)) {
-    for (const item of node) collectItemLists(item, output, visited);
+const walkJson = (value: unknown, visit: (node: Record<string, unknown>) => void) => {
+  if (Array.isArray(value)) {
+    value.forEach(item => walkJson(item, visit));
     return;
   }
+  if (!value || typeof value !== 'object') return;
+  const node = value as Record<string, unknown>;
+  visit(node);
+  Object.values(node).forEach(child => walkJson(child, visit));
+};
 
-  const record = node as Record<string, unknown>;
-  if (isItemList(record['@type'])) output.push(record);
+function extractFromJsonLd(html: string): Candidate[] {
+  const candidates: Candidate[] = [];
+  const scripts = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
 
-  for (const value of Object.values(record)) {
-    collectItemLists(value, output, visited);
-  }
-}
-
-function getCandidateFromListEntry(entry: unknown): PlaceCandidate | null {
-  if (!entry || typeof entry !== 'object') return null;
-  const record = entry as Record<string, unknown>;
-  const item = record.item && typeof record.item === 'object' ? (record.item as Record<string, unknown>) : undefined;
-
-  const rawTitle = item?.name ?? record.name;
-  if (!isValidPlaceTitle(rawTitle)) return null;
-
-  const rawUrl = item?.url ?? record.url;
-  return {
-    title: cleanText(rawTitle),
-    mapUrl: typeof rawUrl === 'string' && /google\.[^/]+\/maps|maps\.app\.goo\.gl/i.test(rawUrl) ? cleanText(rawUrl) : undefined,
-  };
-}
-
-function extractJsonLdCandidates(html: string): PlaceCandidate[] {
-  const candidates: PlaceCandidate[] = [];
-  const scriptPattern = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-
-  for (const match of html.matchAll(scriptPattern)) {
-    const content = decodeHtmlEntities(match[1] || '').trim();
-    if (!content) continue;
-
+  for (const match of scripts) {
     try {
-      const parsed = JSON.parse(content);
-      const itemLists: Record<string, unknown>[] = [];
-      collectItemLists(parsed, itemLists);
+      const parsed = JSON.parse(match[1]);
+      walkJson(parsed, node => {
+        const rawType = node['@type'];
+        const types = Array.isArray(rawType) ? rawType : [rawType];
+        if (!types.includes('ItemList')) return;
+        const elements = node.itemListElement;
+        if (!Array.isArray(elements)) return;
 
-      for (const list of itemLists) {
-        const elements = list.itemListElement;
-        const entries = Array.isArray(elements) ? elements : elements ? [elements] : [];
-        for (const entry of entries) {
-          const candidate = getCandidateFromListEntry(entry);
-          if (candidate) candidates.push(candidate);
+        for (const element of elements) {
+          if (!element || typeof element !== 'object') continue;
+          const entry = element as Record<string, unknown>;
+          const item = entry.item && typeof entry.item === 'object' ? (entry.item as Record<string, unknown>) : undefined;
+          const name = typeof item?.name === 'string' ? item.name : typeof entry.name === 'string' ? entry.name : '';
+          const mapUrl = typeof item?.url === 'string' ? item.url : typeof entry.url === 'string' ? entry.url : undefined;
+          if (isValidPlaceName(name)) candidates.push({ title: cleanText(name), mapUrl });
         }
-      }
+      });
     } catch {
-      // Google may include unrelated or malformed JSON-LD blocks. Ignore those blocks only.
+      // Ignore malformed JSON-LD blocks and continue with other extraction paths.
     }
   }
 
   return candidates;
 }
 
-function extractMapUrlCandidates(html: string): PlaceCandidate[] {
-  const decoded = html
-    .replace(/\\u002F/g, '/')
-    .replace(/\\\//g, '/')
-    .replace(/&amp;/g, '&');
-  const candidates: PlaceCandidate[] = [];
-  const urlPatterns = [
-    /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/place\/([^/?#"'\\]+)[^"'\\\s<]*/g,
-    /\/maps\/place\/([^/?#"'\\]+)[^"'\\\s<]*/g,
+function extractFromPlaceUrls(decoded: string): Candidate[] {
+  const candidates: Candidate[] = [];
+  const patterns = [
+    /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
+    /\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
   ];
 
-  for (const pattern of urlPatterns) {
+  for (const pattern of patterns) {
     for (const match of decoded.matchAll(pattern)) {
       let title = '';
       try {
@@ -148,7 +113,7 @@ function extractMapUrlCandidates(html: string): PlaceCandidate[] {
       } catch {
         title = cleanText(match[1] || '');
       }
-      if (!isValidPlaceTitle(title)) continue;
+      if (!isValidPlaceName(title)) continue;
       const rawUrl = match[0].startsWith('http') ? match[0] : `https://www.google.com${match[0]}`;
       candidates.push({ title, mapUrl: rawUrl });
     }
@@ -157,10 +122,38 @@ function extractMapUrlCandidates(html: string): PlaceCandidate[] {
   return candidates;
 }
 
+function extractFromEmbeddedNames(decoded: string): Candidate[] {
+  const candidates: Candidate[] = [];
+
+  // Saved-list pages do not always expose JSON-LD or /maps/place links in the
+  // initial HTML. In that case, use embedded structured name/title fields only.
+  // aria-label is intentionally excluded because it commonly contains ratings,
+  // review counts and button labels rather than place names.
+  const patterns = [
+    /"name"\s*:\s*"((?:\\.|[^"\\]){2,160})"/g,
+    /"title"\s*:\s*"((?:\\.|[^"\\]){2,160})"/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of decoded.matchAll(pattern)) {
+      const title = cleanText(match[1]);
+      if (!isValidPlaceName(title)) continue;
+      candidates.push({ title });
+    }
+  }
+
+  return candidates;
+}
+
 function extractPlaceCandidates(html: string) {
-  const jsonLdCandidates = extractJsonLdCandidates(html);
-  const fallbackCandidates = jsonLdCandidates.length ? [] : extractMapUrlCandidates(html);
-  return unique([...jsonLdCandidates, ...fallbackCandidates], item => item.title).slice(0, 150);
+  const decoded = cleanText(html);
+  const candidates = [
+    ...extractFromJsonLd(html),
+    ...extractFromPlaceUrls(decoded),
+    ...extractFromEmbeddedNames(decoded),
+  ];
+
+  return unique(candidates, item => item.title).slice(0, 150);
 }
 
 async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceResult> {
@@ -225,7 +218,7 @@ export async function POST(request: NextRequest) {
     const candidates = extractPlaceCandidates(html);
     if (!candidates.length) {
       return NextResponse.json(
-        { error: '공개된 장소를 찾지 못했어요. Google Maps에서 목록을 공유 가능 상태로 바꾼 뒤 다시 시도해 주세요.' },
+        { error: '목록 페이지는 열었지만 장소명을 읽지 못했어요. 잠시 후 다시 시도해 주세요.' },
         { status: 422 },
       );
     }
