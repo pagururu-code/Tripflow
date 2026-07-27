@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': key,
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri,places.primaryType,places.rating,places.photos',
+      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri,places.primaryType,places.primaryTypeDisplayName,places.rating,places.photos',
     },
     body: JSON.stringify({ textQuery: query, languageCode: 'ko' }),
     cache: 'no-store',
