@@ -135,15 +135,7 @@ function enhance() {
   if (!data) return;
   const trip = data.trips.find(item => item.id === data.activeTripId) || data.trips[0];
   if (!trip) return;
-  const inbox = data.inbox.filter(item => item.tripId === trip.id);
   const schedules = data.schedules.filter(item => item.tripId === trip.id);
-
-  document.querySelectorAll<HTMLElement>('.tf-organizer-card').forEach(card => {
-    const title = card.querySelector('h3')?.textContent?.trim();
-    const item = inbox.find(entry => entry.title === title);
-    const target = card.querySelector<HTMLElement>('.tf-organizer-card-main');
-    if (item && target) syncDetails(card,item,false,target.parentElement || card);
-  });
 
   document.querySelectorAll<HTMLElement>('.schedule-card').forEach(card => {
     const title = card.querySelector('h3')?.textContent?.trim();
