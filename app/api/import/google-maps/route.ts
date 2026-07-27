@@ -9,6 +9,11 @@ type PlaceResult = {
   mapUrl?: string;
 };
 
+type PlaceCandidate = {
+  title: string;
+  mapUrl?: string;
+};
+
 const cleanText = (value: string) =>
   value
     .replace(/\\u003d/g, '=')
@@ -17,6 +22,7 @@ const cleanText = (value: string) =>
     .replace(/\\u0022/g, '"')
     .replace(/\\n/g, ' ')
     .replace(/\+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 
 const unique = <T,>(items: T[], key: (item: T) => string) => {
@@ -29,40 +35,132 @@ const unique = <T,>(items: T[], key: (item: T) => string) => {
   });
 };
 
-function extractPlaceCandidates(html: string) {
+const isValidPlaceTitle = (rawValue: unknown): rawValue is string => {
+  if (typeof rawValue !== 'string') return false;
+  const value = cleanText(rawValue);
+  if (value.length < 2 || value.length > 160) return false;
+  if (!/[\p{L}\p{N}]/u.test(value)) return false;
+  if (/^[\d\s.,/★☆⭐·•()\-+:%]+$/u.test(value)) return false;
+
+  const rejectedPatterns = [
+    /^별표\s*평점\s*:/i,
+    /^리뷰\s*[\d,.]+\s*개?$/i,
+    /^주소\s*정보\s*없음$/i,
+    /^이미\s*있음$/i,
+    /^\d(?:\.\d)?\s*\/\s*5$/,
+    /^(google|google maps|maps|지도|목록|저장|공유|로그인|검색)$/i,
+  ];
+
+  return !rejectedPatterns.some(pattern => pattern.test(value));
+};
+
+const decodeHtmlEntities = (value: string) =>
+  value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+
+const normalizeType = (value: unknown) => (Array.isArray(value) ? value : [value]).filter(Boolean);
+
+const isItemList = (value: unknown) =>
+  normalizeType(value).some(type => typeof type === 'string' && type.toLowerCase() === 'itemlist');
+
+function collectItemLists(node: unknown, output: Record<string, unknown>[], visited = new Set<object>()) {
+  if (!node || typeof node !== 'object') return;
+  if (visited.has(node as object)) return;
+  visited.add(node as object);
+
+  if (Array.isArray(node)) {
+    for (const item of node) collectItemLists(item, output, visited);
+    return;
+  }
+
+  const record = node as Record<string, unknown>;
+  if (isItemList(record['@type'])) output.push(record);
+
+  for (const value of Object.values(record)) {
+    collectItemLists(value, output, visited);
+  }
+}
+
+function getCandidateFromListEntry(entry: unknown): PlaceCandidate | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const record = entry as Record<string, unknown>;
+  const item = record.item && typeof record.item === 'object' ? (record.item as Record<string, unknown>) : undefined;
+
+  const rawTitle = item?.name ?? record.name;
+  if (!isValidPlaceTitle(rawTitle)) return null;
+
+  const rawUrl = item?.url ?? record.url;
+  return {
+    title: cleanText(rawTitle),
+    mapUrl: typeof rawUrl === 'string' && /google\.[^/]+\/maps|maps\.app\.goo\.gl/i.test(rawUrl) ? cleanText(rawUrl) : undefined,
+  };
+}
+
+function extractJsonLdCandidates(html: string): PlaceCandidate[] {
+  const candidates: PlaceCandidate[] = [];
+  const scriptPattern = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+  for (const match of html.matchAll(scriptPattern)) {
+    const content = decodeHtmlEntities(match[1] || '').trim();
+    if (!content) continue;
+
+    try {
+      const parsed = JSON.parse(content);
+      const itemLists: Record<string, unknown>[] = [];
+      collectItemLists(parsed, itemLists);
+
+      for (const list of itemLists) {
+        const elements = list.itemListElement;
+        const entries = Array.isArray(elements) ? elements : elements ? [elements] : [];
+        for (const entry of entries) {
+          const candidate = getCandidateFromListEntry(entry);
+          if (candidate) candidates.push(candidate);
+        }
+      }
+    } catch {
+      // Google may include unrelated or malformed JSON-LD blocks. Ignore those blocks only.
+    }
+  }
+
+  return candidates;
+}
+
+function extractMapUrlCandidates(html: string): PlaceCandidate[] {
   const decoded = html
     .replace(/\\u002F/g, '/')
     .replace(/\\\//g, '/')
     .replace(/&amp;/g, '&');
-  const candidates: { title: string; mapUrl?: string }[] = [];
-
+  const candidates: PlaceCandidate[] = [];
   const urlPatterns = [
-    /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
-    /\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
+    /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/place\/([^/?#"'\\]+)[^"'\\\s<]*/g,
+    /\/maps\/place\/([^/?#"'\\]+)[^"'\\\s<]*/g,
   ];
+
   for (const pattern of urlPatterns) {
     for (const match of decoded.matchAll(pattern)) {
-      let title = cleanText(decodeURIComponent(match[1] || ''));
-      if (!title || title.length > 160) continue;
+      let title = '';
+      try {
+        title = cleanText(decodeURIComponent(match[1] || ''));
+      } catch {
+        title = cleanText(match[1] || '');
+      }
+      if (!isValidPlaceTitle(title)) continue;
       const rawUrl = match[0].startsWith('http') ? match[0] : `https://www.google.com${match[0]}`;
       candidates.push({ title, mapUrl: rawUrl });
     }
   }
 
-  const namePatterns = [
-    /"name"\s*:\s*"([^"\\]{2,120})"/g,
-    /"title"\s*:\s*"([^"\\]{2,120})"/g,
-    /aria-label="([^"]{2,120})"/g,
-  ];
-  for (const pattern of namePatterns) {
-    for (const match of decoded.matchAll(pattern)) {
-      const title = cleanText(match[1]);
-      if (/google|지도|maps|목록|저장|공유|로그인|검색/i.test(title)) continue;
-      candidates.push({ title });
-    }
-  }
+  return candidates;
+}
 
-  return unique(candidates, item => item.title).slice(0, 150);
+function extractPlaceCandidates(html: string) {
+  const jsonLdCandidates = extractJsonLdCandidates(html);
+  const fallbackCandidates = jsonLdCandidates.length ? [] : extractMapUrlCandidates(html);
+  return unique([...jsonLdCandidates, ...fallbackCandidates], item => item.title).slice(0, 150);
 }
 
 async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceResult> {
@@ -77,7 +175,7 @@ async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceRe
         'X-Goog-Api-Key': key,
         'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri',
       },
-      body: JSON.stringify({ textQuery: title, languageCode: 'ko' }),
+      body: JSON.stringify({ textQuery: title, languageCode: 'ko', maxResultCount: 1 }),
       cache: 'no-store',
     });
     if (!response.ok) throw new Error('Places lookup failed');
