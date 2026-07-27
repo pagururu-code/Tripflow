@@ -68,12 +68,17 @@ function scheduleConflict(item:PlaceLike) {
   return fits ? '' : `일정 시간이 영업시간과 맞지 않아요. (${timePart(description)})`;
 }
 
+function itemSignature(item:PlaceLike, schedule:boolean) {
+  return JSON.stringify([item.title,item.placeType,item.openingHours,item.date,item.start,item.duration,schedule]);
+}
+
 function detailsMarkup(item:PlaceLike, schedule=false) {
   if (!item.placeType && !item.openingHours?.length) return null;
   const description = todayDescription(item);
   const warning = schedule ? scheduleConflict(item) : '';
   const wrap = document.createElement('div');
   wrap.className = 'tf-place-details';
+  wrap.dataset.signature = itemSignature(item,schedule);
   if (item.placeType) {
     const type = document.createElement('p');
     type.textContent = `🏷️ ${item.placeType}`;
@@ -112,6 +117,18 @@ function installStyles() {
   document.head.appendChild(style);
 }
 
+function syncDetails(card:HTMLElement,item:PlaceLike,schedule:boolean,target:HTMLElement) {
+  const signature = itemSignature(item,schedule);
+  const existing = card.querySelector<HTMLElement>('.tf-place-details');
+  if (existing?.dataset.signature === signature) return;
+  const wasOpen = Boolean(existing?.querySelector('details')?.hasAttribute('open'));
+  existing?.remove();
+  const details = detailsMarkup(item,schedule);
+  if (!details) return;
+  if (wasOpen) details.querySelector('details')?.setAttribute('open','');
+  target.appendChild(details);
+}
+
 function enhance() {
   installStyles();
   const data = readData();
@@ -122,31 +139,33 @@ function enhance() {
   const schedules = data.schedules.filter(item => item.tripId === trip.id);
 
   document.querySelectorAll<HTMLElement>('.tf-organizer-card').forEach(card => {
-    if (card.querySelector('.tf-place-details')) return;
     const title = card.querySelector('h3')?.textContent?.trim();
     const item = inbox.find(entry => entry.title === title);
-    if (!item) return;
-    const details = detailsMarkup(item,false);
-    if (details) card.querySelector('.tf-organizer-card-main')?.insertAdjacentElement('afterend',details);
+    const target = card.querySelector<HTMLElement>('.tf-organizer-card-main');
+    if (item && target) syncDetails(card,item,false,target.parentElement || card);
   });
 
   document.querySelectorAll<HTMLElement>('.schedule-card').forEach(card => {
-    card.querySelector('.tf-place-details')?.remove();
     const title = card.querySelector('h3')?.textContent?.trim();
     const item = schedules.find(entry => entry.title === title && entry.openingHours?.length);
-    if (!item) return;
-    const details = detailsMarkup(item,true);
-    if (details) card.appendChild(details);
+    if (item) syncDetails(card,item,true,card);
   });
 }
 
 export default function PlaceHoursEnhancer() {
   useEffect(() => {
-    enhance();
-    const observer = new MutationObserver(enhance);
+    let queued = false;
+    const run = () => {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(() => { queued = false; enhance(); });
+    };
+    run();
+    const observer = new MutationObserver(run);
     observer.observe(document.body,{childList:true,subtree:true});
-    const timer = window.setInterval(enhance,800);
-    return () => { observer.disconnect(); window.clearInterval(timer); };
+    const onStorage = (event:StorageEvent) => { if (event.key === APP_KEY) run(); };
+    window.addEventListener('storage',onStorage);
+    return () => { observer.disconnect(); window.removeEventListener('storage',onStorage); };
   },[]);
   return null;
 }
