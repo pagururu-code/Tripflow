@@ -9,7 +9,8 @@ type PlaceResult = {
   mapUrl?: string;
 };
 
-type Candidate = { title: string; mapUrl?: string };
+type CandidateSource = 'json-ld' | 'place-url' | 'embedded-name' | 'bootstrap';
+type Candidate = { title: string; mapUrl?: string; source: CandidateSource };
 
 const cleanText = (value: string) =>
   value
@@ -28,23 +29,40 @@ const cleanText = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const normalize = (value: string) =>
+  cleanText(value)
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '');
+
 const unique = <T,>(items: T[], key: (item: T) => string) => {
   const seen = new Set<string>();
   return items.filter(item => {
-    const value = key(item).normalize('NFKC').toLocaleLowerCase();
+    const value = normalize(key(item));
     if (!value || seen.has(value)) return false;
     seen.add(value);
     return true;
   });
 };
 
+const isRepeatedFragment = (value: string) => {
+  const normalized = normalize(value);
+  for (let size = 1; size <= Math.floor(normalized.length / 2); size += 1) {
+    if (normalized.length % size !== 0) continue;
+    const fragment = normalized.slice(0, size);
+    if (fragment.repeat(normalized.length / size) === normalized) return true;
+  }
+  return false;
+};
+
 const isValidPlaceName = (raw: string) => {
   const title = cleanText(raw);
-  if (title.length < 2 || title.length > 120) return false;
-
-  // Google Maps UI/accessibility text that must never become a place candidate.
+  const normalized = normalize(title);
+  if (title.length < 2 || title.length > 120 || normalized.length < 2) return false;
+  if (/null|undefined|nan/i.test(title)) return false;
+  if (/[\[\]{}]{2,}|,{2,}/.test(title)) return false;
   if (/^별표\s*평점\s*[:：]?\s*\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
-  if(/^리뷰\s*[\d,.]+\s*개?$/i.test(title)) return false;
+  if (/^리뷰\s*[\d,.]+\s*개?$/i.test(title)) return false;
   if (/^\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
   if (/^(주소\s*정보\s*없음|이미\s*있음|저장됨|저장|공유|길찾기|전화|웹사이트|메뉴|사진|리뷰|개요)$/i.test(title)) return false;
   if (/^(google|google maps|maps|지도|목록|저장목록|검색|로그인|계정|닫기|열기|더보기)$/i.test(title)) return false;
@@ -52,7 +70,21 @@ const isValidPlaceName = (raw: string) => {
   if (/^(영업\s*중|영업\s*종료|휴무|곧\s*영업\s*종료|영업시간)/i.test(title)) return false;
   if (/^(₩|\$|€|¥)+$/.test(title)) return false;
   if (/^https?:\/\//i.test(title)) return false;
+  return true;
+};
 
+const isValidBootstrapCandidate = (raw: string) => {
+  if (!isValidPlaceName(raw)) return false;
+  const title = cleanText(raw);
+  const normalized = normalize(title);
+  const hasCjk = /[\u3131-\uD79D\u3040-\u30ff\u3400-\u9fff]/.test(title);
+  const hasLatin = /[A-Za-z]/.test(title);
+  if (hasLatin && !hasCjk && normalized.length < 4) return false;
+  if (hasCjk && normalized.length < 3) return false;
+  if (normalized.length <= 8 && isRepeatedFragment(title)) return false;
+  if ((title.match(/\s+/g)?.length || 0) > 8) return false;
+  if (/[.!?。！？]$/.test(title)) return false;
+  if (/^(google maps|google|maps|지도|저장목록|공유 목록|목록 공유|장소 저장|로그인|검색 결과)/i.test(title)) return false;
   return true;
 };
 
@@ -70,7 +102,6 @@ const walkJson = (value: unknown, visit: (node: Record<string, unknown>) => void
 function extractFromJsonLd(html: string): Candidate[] {
   const candidates: Candidate[] = [];
   const scripts = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-
   for (const match of scripts) {
     try {
       const parsed = JSON.parse(match[1]);
@@ -80,21 +111,19 @@ function extractFromJsonLd(html: string): Candidate[] {
         if (!types.includes('ItemList')) return;
         const elements = node.itemListElement;
         if (!Array.isArray(elements)) return;
-
         for (const element of elements) {
           if (!element || typeof element !== 'object') continue;
           const entry = element as Record<string, unknown>;
           const item = entry.item && typeof entry.item === 'object' ? (entry.item as Record<string, unknown>) : undefined;
           const name = typeof item?.name === 'string' ? item.name : typeof entry.name === 'string' ? entry.name : '';
           const mapUrl = typeof item?.url === 'string' ? item.url : typeof entry.url === 'string' ? entry.url : undefined;
-          if (isValidPlaceName(name)) candidates.push({ title: cleanText(name), mapUrl });
+          if (isValidPlaceName(name)) candidates.push({ title: cleanText(name), mapUrl, source: 'json-ld' });
         }
       });
     } catch {
-      // Ignore malformed JSON-LD blocks and continue with other extraction paths.
+      // Continue with other extraction paths.
     }
   }
-
   return candidates;
 }
 
@@ -103,8 +132,8 @@ function extractFromPlaceUrls(decoded: string): Candidate[] {
   const patterns = [
     /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
     /\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
+    /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/search\/\?api=1&query=([^&"'\\]+)/g,
   ];
-
   for (const pattern of patterns) {
     for (const match of decoded.matchAll(pattern)) {
       let title = '';
@@ -115,51 +144,70 @@ function extractFromPlaceUrls(decoded: string): Candidate[] {
       }
       if (!isValidPlaceName(title)) continue;
       const rawUrl = match[0].startsWith('http') ? match[0] : `https://www.google.com${match[0]}`;
-      candidates.push({ title, mapUrl: rawUrl });
+      candidates.push({ title, mapUrl: rawUrl, source: 'place-url' });
     }
   }
-
   return candidates;
 }
 
 function extractFromEmbeddedNames(decoded: string): Candidate[] {
   const candidates: Candidate[] = [];
-
-  // Saved-list pages do not always expose JSON-LD or /maps/place links in the
-  // initial HTML. In that case, use embedded structured name/title fields only.
-  // aria-label is intentionally excluded because it commonly contains ratings,
-  // review counts and button labels rather than place names.
   const patterns = [
     /"name"\s*:\s*"((?:\\.|[^"\\]){2,160})"/g,
     /"title"\s*:\s*"((?:\\.|[^"\\]){2,160})"/g,
   ];
-
   for (const pattern of patterns) {
     for (const match of decoded.matchAll(pattern)) {
       const title = cleanText(match[1]);
-      if (!isValidPlaceName(title)) continue;
-      candidates.push({ title });
+      if (isValidPlaceName(title)) candidates.push({ title, source: 'embedded-name' });
     }
   }
+  return candidates;
+}
 
+function extractFromGoogleBootstrap(html: string): Candidate[] {
+  const candidates: Candidate[] = [];
+  const scriptBodies = html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi);
+  for (const match of scriptBodies) {
+    const body = match[1] || '';
+    if (!/(AF_initDataCallback|APP_INITIALIZATION_STATE|_pageData|google\.maps)/.test(body)) continue;
+    for (const stringMatch of body.matchAll(/"((?:\\.|[^"\\]){2,120})"/g)) {
+      const title = cleanText(stringMatch[1]);
+      if (!isValidBootstrapCandidate(title)) continue;
+      candidates.push({ title, source: 'bootstrap' });
+    }
+  }
   return candidates;
 }
 
 function extractPlaceCandidates(html: string) {
   const decoded = cleanText(html);
-  const candidates = [
+  const structured = [
     ...extractFromJsonLd(html),
     ...extractFromPlaceUrls(decoded),
     ...extractFromEmbeddedNames(decoded),
   ];
-
-  return unique(candidates, item => item.title).slice(0, 150);
+  const candidates = structured.length ? structured : extractFromGoogleBootstrap(html);
+  return unique(candidates, item => item.title).slice(0, 40);
 }
 
-async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceResult> {
-  const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) return { id: title, title, mapUrl: fallbackUrl };
+const hasConfidentMatch = (candidate: Candidate, resultTitle: string) => {
+  if (candidate.source !== 'bootstrap') return true;
+  const query = normalize(candidate.title);
+  const result = normalize(resultTitle);
+  if (!query || !result) return false;
+  if (query === result || result.includes(query) || query.includes(result)) return true;
 
+  const queryTokens = cleanText(candidate.title).toLocaleLowerCase().split(/\s+/).map(normalize).filter(Boolean);
+  const resultTokens = new Set(cleanText(resultTitle).toLocaleLowerCase().split(/\s+/).map(normalize).filter(Boolean));
+  if (queryTokens.length < 2) return false;
+  const matched = queryTokens.filter(token => token.length >= 2 && resultTokens.has(token)).length;
+  return matched / queryTokens.length >= 0.6;
+};
+
+async function enrichPlace(candidate: Candidate): Promise<PlaceResult | null> {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) return null;
   try {
     const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
@@ -168,23 +216,24 @@ async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceRe
         'X-Goog-Api-Key': key,
         'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri',
       },
-      body: JSON.stringify({ textQuery: title, languageCode: 'ko', maxResultCount: 1 }),
+      body: JSON.stringify({ textQuery: candidate.title, languageCode: 'ko', maxResultCount: 1 }),
       cache: 'no-store',
     });
-    if (!response.ok) throw new Error('Places lookup failed');
+    if (!response.ok) return null;
     const data = await response.json();
     const place = data.places?.[0];
-    if (!place) return { id: title, title, mapUrl: fallbackUrl };
+    const displayName = place?.displayName?.text;
+    if (!place || !displayName || !hasConfidentMatch(candidate, displayName)) return null;
     return {
-      id: place.id || title,
-      title: place.displayName?.text || title,
+      id: place.id || candidate.title,
+      title: displayName,
       address: place.formattedAddress,
       location: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : undefined,
       openingHours: place.regularOpeningHours?.weekdayDescriptions,
-      mapUrl: place.googleMapsUri || fallbackUrl,
+      mapUrl: place.googleMapsUri || candidate.mapUrl,
     };
   } catch {
-    return { id: title, title, mapUrl: fallbackUrl };
+    return null;
   }
 }
 
@@ -226,11 +275,19 @@ export async function POST(request: NextRequest) {
     const places: PlaceResult[] = [];
     for (let index = 0; index < candidates.length; index += 5) {
       const batch = candidates.slice(index, index + 5);
-      const results = await Promise.all(batch.map(item => enrichPlace(item.title, item.mapUrl)));
-      places.push(...results);
+      const results = await Promise.all(batch.map(item => enrichPlace(item)));
+      places.push(...results.filter((place): place is PlaceResult => Boolean(place)));
     }
 
-    return NextResponse.json({ places: unique(places, place => place.id || place.title), sourceUrl: response.url });
+    const verifiedPlaces = unique(places, place => place.id || place.title);
+    if (!verifiedPlaces.length) {
+      return NextResponse.json(
+        { error: '장소 후보는 찾았지만 Google Places에서 실제 장소로 확인하지 못했어요.' },
+        { status: 422 },
+      );
+    }
+
+    return NextResponse.json({ places: verifiedPlaces, sourceUrl: response.url });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: '저장목록을 가져오는 중 오류가 발생했어요.' }, { status: 500 });
