@@ -7,9 +7,12 @@ type PlaceResult = {
   location?: { lat: number; lng: number };
   openingHours?: string[];
   mapUrl?: string;
+  rawTitle?: string;
+  candidateSource?: CandidateSource;
 };
 
-type Candidate = { title: string; mapUrl?: string };
+type CandidateSource = 'json-ld' | 'place-url' | 'embedded-name' | 'bootstrap';
+type Candidate = { title: string; mapUrl?: string; source: CandidateSource };
 
 const cleanText = (value: string) =>
   value
@@ -41,6 +44,7 @@ const unique = <T,>(items: T[], key: (item: T) => string) => {
 const isValidPlaceName = (raw: string) => {
   const title = cleanText(raw);
   if (title.length < 2 || title.length > 120) return false;
+  if (/^null$/i.test(title)) return false;
   if (/^별표\s*평점\s*[:：]?\s*\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
   if (/^리뷰\s*[\d,.]+\s*개?$/i.test(title)) return false;
   if (/^\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
@@ -82,7 +86,7 @@ function extractFromJsonLd(html: string): Candidate[] {
           const item = entry.item && typeof entry.item === 'object' ? (entry.item as Record<string, unknown>) : undefined;
           const name = typeof item?.name === 'string' ? item.name : typeof entry.name === 'string' ? entry.name : '';
           const mapUrl = typeof item?.url === 'string' ? item.url : typeof entry.url === 'string' ? entry.url : undefined;
-          if (isValidPlaceName(name)) candidates.push({ title: cleanText(name), mapUrl });
+          if (isValidPlaceName(name)) candidates.push({ title: cleanText(name), mapUrl, source: 'json-ld' });
         }
       });
     } catch {
@@ -109,7 +113,7 @@ function extractFromPlaceUrls(decoded: string): Candidate[] {
       }
       if (!isValidPlaceName(title)) continue;
       const rawUrl = match[0].startsWith('http') ? match[0] : `https://www.google.com${match[0]}`;
-      candidates.push({ title, mapUrl: rawUrl });
+      candidates.push({ title, mapUrl: rawUrl, source: 'place-url' });
     }
   }
   return candidates;
@@ -124,7 +128,7 @@ function extractFromEmbeddedNames(decoded: string): Candidate[] {
   for (const pattern of patterns) {
     for (const match of decoded.matchAll(pattern)) {
       const title = cleanText(match[1]);
-      if (isValidPlaceName(title)) candidates.push({ title });
+      if (isValidPlaceName(title)) candidates.push({ title, source: 'embedded-name' });
     }
   }
   return candidates;
@@ -143,7 +147,7 @@ function extractFromGoogleBootstrap(html: string): Candidate[] {
       if ((title.match(/\s+/g)?.length || 0) > 8) continue;
       if (/[.!?。！？]$/.test(title)) continue;
       if (/^(google maps|google|maps|지도|저장목록|공유 목록|목록 공유|장소 저장|로그인|검색 결과)/i.test(title)) continue;
-      candidates.push({ title });
+      candidates.push({ title, source: 'bootstrap' });
     }
   }
   return candidates;
@@ -160,9 +164,17 @@ function extractPlaceCandidates(html: string) {
   return unique(candidates, item => item.title).slice(0, 40);
 }
 
-async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceResult | null> {
+async function enrichPlace(candidate: Candidate): Promise<PlaceResult | null> {
   const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) return { id: title, title, mapUrl: fallbackUrl };
+  if (!key) {
+    return {
+      id: candidate.title,
+      title: candidate.title,
+      mapUrl: candidate.mapUrl,
+      rawTitle: candidate.title,
+      candidateSource: candidate.source,
+    };
+  }
   try {
     const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
@@ -171,7 +183,7 @@ async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceRe
         'X-Goog-Api-Key': key,
         'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri',
       },
-      body: JSON.stringify({ textQuery: title, languageCode: 'ko', maxResultCount: 1 }),
+      body: JSON.stringify({ textQuery: candidate.title, languageCode: 'ko', maxResultCount: 1 }),
       cache: 'no-store',
     });
     if (!response.ok) return null;
@@ -179,12 +191,14 @@ async function enrichPlace(title: string, fallbackUrl?: string): Promise<PlaceRe
     const place = data.places?.[0];
     if (!place) return null;
     return {
-      id: place.id || title,
-      title: place.displayName?.text || title,
+      id: place.id || candidate.title,
+      title: place.displayName?.text || candidate.title,
       address: place.formattedAddress,
       location: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : undefined,
       openingHours: place.regularOpeningHours?.weekdayDescriptions,
-      mapUrl: place.googleMapsUri || fallbackUrl,
+      mapUrl: place.googleMapsUri || candidate.mapUrl,
+      rawTitle: candidate.title,
+      candidateSource: candidate.source,
     };
   } catch {
     return null;
@@ -229,19 +243,26 @@ export async function POST(request: NextRequest) {
     const places: PlaceResult[] = [];
     for (let index = 0; index < candidates.length; index += 5) {
       const batch = candidates.slice(index, index + 5);
-      const results = await Promise.all(batch.map(item => enrichPlace(item.title, item.mapUrl)));
+      const results = await Promise.all(batch.map(item => enrichPlace(item)));
       places.push(...results.filter((place): place is PlaceResult => Boolean(place)));
     }
 
     const verifiedPlaces = unique(places, place => place.id || place.title);
     if (!verifiedPlaces.length) {
       return NextResponse.json(
-        { error: '장소 후보는 찾았지만 Google Places에서 실제 장소로 확인하지 못했어요.' },
+        {
+          error: '장소 후보는 찾았지만 Google Places에서 실제 장소로 확인하지 못했어요.',
+          rawCandidates: candidates,
+        },
         { status: 422 },
       );
     }
 
-    return NextResponse.json({ places: verifiedPlaces, sourceUrl: response.url });
+    return NextResponse.json({
+      places: verifiedPlaces,
+      sourceUrl: response.url,
+      rawCandidates: candidates,
+    });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: '저장목록을 가져오는 중 오류가 발생했어요.' }, { status: 500 });
