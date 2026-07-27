@@ -11,8 +11,6 @@ type ImportedPlace = {
   location?: { lat: number; lng: number };
   openingHours?: string[];
   mapUrl?: string;
-  rawTitle?: string;
-  candidateSource?: 'json-ld' | 'place-url' | 'embedded-name' | 'bootstrap';
 };
 
 const normalize = (value = '') => value.toLocaleLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
@@ -130,7 +128,6 @@ export default function GoogleMapsImport({
           <div className="import-list">
             {places.map(place => {
               const duplicate = isDuplicate(place);
-              const showDiagnostic = place.rawTitle && normalize(place.rawTitle) !== normalize(place.title);
               return (
                 <label className={`import-place ${duplicate ? 'duplicate' : ''}`} key={place.id}>
                   <input
@@ -143,9 +140,6 @@ export default function GoogleMapsImport({
                   <span className="import-place-copy">
                     <b>{place.title}</b>
                     <small><MapPin size={12} />{place.address || '주소 정보 없음'}</small>
-                    {showDiagnostic && (
-                      <small>추출값: {place.rawTitle} · {place.candidateSource || 'unknown'}</small>
-                    )}
                   </span>
                   {duplicate ? <em>이미 있음</em> : place.mapUrl && <ExternalLink size={15} />}
                 </label>
