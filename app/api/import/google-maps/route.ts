@@ -7,8 +7,6 @@ type PlaceResult = {
   location?: { lat: number; lng: number };
   openingHours?: string[];
   mapUrl?: string;
-  rawTitle?: string;
-  candidateSource?: CandidateSource;
 };
 
 type CandidateSource = 'json-ld' | 'place-url' | 'embedded-name' | 'bootstrap';
@@ -31,20 +29,38 @@ const cleanText = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const normalize = (value: string) =>
+  cleanText(value)
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '');
+
 const unique = <T,>(items: T[], key: (item: T) => string) => {
   const seen = new Set<string>();
   return items.filter(item => {
-    const value = key(item).normalize('NFKC').toLocaleLowerCase();
+    const value = normalize(key(item));
     if (!value || seen.has(value)) return false;
     seen.add(value);
     return true;
   });
 };
 
+const isRepeatedFragment = (value: string) => {
+  const normalized = normalize(value);
+  for (let size = 1; size <= Math.floor(normalized.length / 2); size += 1) {
+    if (normalized.length % size !== 0) continue;
+    const fragment = normalized.slice(0, size);
+    if (fragment.repeat(normalized.length / size) === normalized) return true;
+  }
+  return false;
+};
+
 const isValidPlaceName = (raw: string) => {
   const title = cleanText(raw);
-  if (title.length < 2 || title.length > 120) return false;
-  if (/^null$/i.test(title)) return false;
+  const normalized = normalize(title);
+  if (title.length < 2 || title.length > 120 || normalized.length < 2) return false;
+  if (/null|undefined|nan/i.test(title)) return false;
+  if (/[\[\]{}]{2,}|,{2,}/.test(title)) return false;
   if (/^별표\s*평점\s*[:：]?\s*\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
   if (/^리뷰\s*[\d,.]+\s*개?$/i.test(title)) return false;
   if (/^\d(?:\.\d)?\s*\/\s*5$/i.test(title)) return false;
@@ -54,6 +70,21 @@ const isValidPlaceName = (raw: string) => {
   if (/^(영업\s*중|영업\s*종료|휴무|곧\s*영업\s*종료|영업시간)/i.test(title)) return false;
   if (/^(₩|\$|€|¥)+$/.test(title)) return false;
   if (/^https?:\/\//i.test(title)) return false;
+  return true;
+};
+
+const isValidBootstrapCandidate = (raw: string) => {
+  if (!isValidPlaceName(raw)) return false;
+  const title = cleanText(raw);
+  const normalized = normalize(title);
+  const hasCjk = /[\u3131-\uD79D\u3040-\u30ff\u3400-\u9fff]/.test(title);
+  const hasLatin = /[A-Za-z]/.test(title);
+  if (hasLatin && !hasCjk && normalized.length < 4) return false;
+  if (hasCjk && normalized.length < 3) return false;
+  if (normalized.length <= 8 && isRepeatedFragment(title)) return false;
+  if ((title.match(/\s+/g)?.length || 0) > 8) return false;
+  if (/[.!?。！？]$/.test(title)) return false;
+  if (/^(google maps|google|maps|지도|저장목록|공유 목록|목록 공유|장소 저장|로그인|검색 결과)/i.test(title)) return false;
   return true;
 };
 
@@ -142,11 +173,7 @@ function extractFromGoogleBootstrap(html: string): Candidate[] {
     if (!/(AF_initDataCallback|APP_INITIALIZATION_STATE|_pageData|google\.maps)/.test(body)) continue;
     for (const stringMatch of body.matchAll(/"((?:\\.|[^"\\]){2,120})"/g)) {
       const title = cleanText(stringMatch[1]);
-      if (!isValidPlaceName(title)) continue;
-      if (!/[A-Za-z\u3131-\uD79D\u3040-\u30ff\u3400-\u9fff]/.test(title)) continue;
-      if ((title.match(/\s+/g)?.length || 0) > 8) continue;
-      if (/[.!?。！？]$/.test(title)) continue;
-      if (/^(google maps|google|maps|지도|저장목록|공유 목록|목록 공유|장소 저장|로그인|검색 결과)/i.test(title)) continue;
+      if (!isValidBootstrapCandidate(title)) continue;
       candidates.push({ title, source: 'bootstrap' });
     }
   }
@@ -164,17 +191,23 @@ function extractPlaceCandidates(html: string) {
   return unique(candidates, item => item.title).slice(0, 40);
 }
 
+const hasConfidentMatch = (candidate: Candidate, resultTitle: string) => {
+  if (candidate.source !== 'bootstrap') return true;
+  const query = normalize(candidate.title);
+  const result = normalize(resultTitle);
+  if (!query || !result) return false;
+  if (query === result || result.includes(query) || query.includes(result)) return true;
+
+  const queryTokens = cleanText(candidate.title).toLocaleLowerCase().split(/\s+/).map(normalize).filter(Boolean);
+  const resultTokens = new Set(cleanText(resultTitle).toLocaleLowerCase().split(/\s+/).map(normalize).filter(Boolean));
+  if (queryTokens.length < 2) return false;
+  const matched = queryTokens.filter(token => token.length >= 2 && resultTokens.has(token)).length;
+  return matched / queryTokens.length >= 0.6;
+};
+
 async function enrichPlace(candidate: Candidate): Promise<PlaceResult | null> {
   const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) {
-    return {
-      id: candidate.title,
-      title: candidate.title,
-      mapUrl: candidate.mapUrl,
-      rawTitle: candidate.title,
-      candidateSource: candidate.source,
-    };
-  }
+  if (!key) return null;
   try {
     const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
@@ -189,16 +222,15 @@ async function enrichPlace(candidate: Candidate): Promise<PlaceResult | null> {
     if (!response.ok) return null;
     const data = await response.json();
     const place = data.places?.[0];
-    if (!place) return null;
+    const displayName = place?.displayName?.text;
+    if (!place || !displayName || !hasConfidentMatch(candidate, displayName)) return null;
     return {
       id: place.id || candidate.title,
-      title: place.displayName?.text || candidate.title,
+      title: displayName,
       address: place.formattedAddress,
       location: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : undefined,
       openingHours: place.regularOpeningHours?.weekdayDescriptions,
       mapUrl: place.googleMapsUri || candidate.mapUrl,
-      rawTitle: candidate.title,
-      candidateSource: candidate.source,
     };
   } catch {
     return null;
@@ -250,19 +282,12 @@ export async function POST(request: NextRequest) {
     const verifiedPlaces = unique(places, place => place.id || place.title);
     if (!verifiedPlaces.length) {
       return NextResponse.json(
-        {
-          error: '장소 후보는 찾았지만 Google Places에서 실제 장소로 확인하지 못했어요.',
-          rawCandidates: candidates,
-        },
+        { error: '장소 후보는 찾았지만 Google Places에서 실제 장소로 확인하지 못했어요.' },
         { status: 422 },
       );
     }
 
-    return NextResponse.json({
-      places: verifiedPlaces,
-      sourceUrl: response.url,
-      rawCandidates: candidates,
-    });
+    return NextResponse.json({ places: verifiedPlaces, sourceUrl: response.url });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: '저장목록을 가져오는 중 오류가 발생했어요.' }, { status: 500 });
