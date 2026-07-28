@@ -6,6 +6,7 @@ type PlaceResult = {
   address?: string;
   location?: { lat: number; lng: number };
   openingHours?: string[];
+  placeType?: string;
   mapUrl?: string;
 };
 
@@ -205,6 +206,13 @@ const hasConfidentMatch = (candidate: Candidate, resultTitle: string) => {
   return matched / queryTokens.length >= 0.6;
 };
 
+const humanizeType = (value = '') =>
+  value
+    .split('_')
+    .filter(Boolean)
+    .map(word => word[0]?.toUpperCase() + word.slice(1))
+    .join(' ');
+
 async function enrichPlace(candidate: Candidate): Promise<PlaceResult | null> {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return null;
@@ -214,7 +222,7 @@ async function enrichPlace(candidate: Candidate): Promise<PlaceResult | null> {
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': key,
-        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri',
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri,places.primaryType,places.primaryTypeDisplayName',
       },
       body: JSON.stringify({ textQuery: candidate.title, languageCode: 'ko', maxResultCount: 1 }),
       cache: 'no-store',
@@ -224,12 +232,14 @@ async function enrichPlace(candidate: Candidate): Promise<PlaceResult | null> {
     const place = data.places?.[0];
     const displayName = place?.displayName?.text;
     if (!place || !displayName || !hasConfidentMatch(candidate, displayName)) return null;
+    const placeType = place.primaryTypeDisplayName?.text || humanizeType(place.primaryType || '');
     return {
       id: place.id || candidate.title,
       title: displayName,
       address: place.formattedAddress,
       location: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : undefined,
       openingHours: place.regularOpeningHours?.weekdayDescriptions,
+      placeType: placeType || undefined,
       mapUrl: place.googleMapsUri || candidate.mapUrl,
     };
   } catch {
