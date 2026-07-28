@@ -15,7 +15,6 @@ type ImportedPlace = {
 };
 
 const normalize = (value = '') => value.toLocaleLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
-const humanizeType = (value = '') => value.split('_').filter(Boolean).map(word => word[0]?.toUpperCase()+word.slice(1)).join(' ');
 
 export default function GoogleMapsImport({
   trip,
@@ -51,25 +50,6 @@ export default function GoogleMapsImport({
     }
   };
 
-  const enrichTypes = async (found: ImportedPlace[]) => {
-    const enriched: ImportedPlace[] = [];
-    for (let index = 0; index < found.length; index += 4) {
-      const chunk = found.slice(index,index+4);
-      const values = await Promise.all(chunk.map(async place => {
-        if (place.placeType) return place;
-        try {
-          const response = await fetch('/api/places/search?q='+encodeURIComponent(place.title));
-          const data = await response.json();
-          const match = data.places?.[0];
-          const label = match?.primaryTypeDisplayName?.text || humanizeType(match?.primaryType || '');
-          return { ...place, placeType: label || undefined };
-        } catch { return place; }
-      }));
-      enriched.push(...values);
-    }
-    return enriched;
-  };
-
   const load = async () => {
     const value = url.trim();
     if (!value) return setError('Google Maps 저장목록 링크를 넣어 주세요.');
@@ -84,8 +64,7 @@ export default function GoogleMapsImport({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '목록을 가져오지 못했어요.');
-      const raw: ImportedPlace[] = data.places || [];
-      const found = await enrichTypes(raw);
+      const found: ImportedPlace[] = data.places || [];
       setPlaces(found);
       setSelected(Object.fromEntries(found.map(place => [place.id, !isDuplicate(place)])));
       if (!found.length) setError('목록에서 장소를 찾지 못했어요. 목록을 공유 가능 상태로 바꾼 뒤 다시 시도해 주세요.');
@@ -146,7 +125,7 @@ export default function GoogleMapsImport({
         <>
           <div className="import-summary">
             <b>{places.length}개의 장소를 찾았어요</b>
-            <small>타입과 요일별 영업시간도 함께 저장돼요.</small>
+            <small>타입과 요일별 영업시간도 한 번의 조회로 함께 저장돼요.</small>
           </div>
           <div className="import-list">
             {places.map(place => {
