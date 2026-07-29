@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-type Candidate = { title: string; mapUrl?: string };
+type Candidate = { title: string; mapUrl?: string; verified: boolean };
 type PlaceResult = {
   id: string;
   title: string;
@@ -9,6 +9,7 @@ type PlaceResult = {
   openingHours?: string[];
   placeType?: string;
   mapUrl?: string;
+  verified?: boolean;
 };
 type SearchOutcome = { place?: PlaceResult; error?: string };
 
@@ -62,21 +63,24 @@ function isValidTitle(value: string) {
 function uniqueCandidates(items: Candidate[]) {
   const seen = new Set<string>();
   return items.filter(item => {
-    const key = normalize(item.title);
+    const key = item.mapUrl || normalize(item.title);
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
+function decodePlaceTitle(raw: string) {
+  try { return cleanText(decodeURIComponent(raw)); }
+  catch { return cleanText(raw); }
+}
+
 function extractCandidates(html: string) {
-  const candidates: Candidate[] = [];
+  const verified: Candidate[] = [];
+  const fallback: Candidate[] = [];
 
   const visitItemList = (value: unknown) => {
-    if (Array.isArray(value)) {
-      value.forEach(visitItemList);
-      return;
-    }
+    if (Array.isArray(value)) return value.forEach(visitItemList);
     if (!value || typeof value !== 'object') return;
 
     const record = value as Record<string, unknown>;
@@ -92,33 +96,38 @@ function extractCandidates(html: string) {
           : entry;
         const title = typeof item.name === 'string'
           ? item.name
-          : typeof entry.name === 'string'
-            ? entry.name
-            : '';
+          : typeof entry.name === 'string' ? entry.name : '';
         const mapUrl = typeof item.url === 'string'
           ? item.url
-          : typeof entry.url === 'string'
-            ? entry.url
-            : undefined;
-
-        if (isValidTitle(title)) {
-          candidates.push({ title: cleanText(title), mapUrl });
-        }
+          : typeof entry.url === 'string' ? entry.url : undefined;
+        if (isValidTitle(title)) verified.push({ title: cleanText(title), mapUrl, verified: true });
       }
     }
-
     Object.values(record).forEach(visitItemList);
   };
 
   for (const match of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {
-      visitItemList(JSON.parse(match[1]));
-    } catch {
-      // Ignore malformed structured-data blocks.
+    try { visitItemList(JSON.parse(match[1])); } catch {}
+  }
+
+  if (verified.length) return uniqueCandidates(verified).slice(0, 40);
+
+  const decoded = cleanText(html);
+  const patterns = [
+    /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/place\/([^/?#"'\\]+)[^"'\\\s<>]*/g,
+    /\/maps\/place\/([^/?#"'\\]+)[^"'\\\s<>]*/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of decoded.matchAll(pattern)) {
+      const title = decodePlaceTitle(match[1] || '');
+      if (!isValidTitle(title)) continue;
+      const rawUrl = match[0];
+      const mapUrl = rawUrl.startsWith('http') ? rawUrl : `https://www.google.com${rawUrl}`;
+      fallback.push({ title, mapUrl, verified: false });
     }
   }
 
-  return uniqueCandidates(candidates).slice(0, 40);
+  return uniqueCandidates(fallback).slice(0, 40);
 }
 
 function typeLabel(primaryType?: string) {
@@ -141,7 +150,6 @@ async function searchPlace(candidate: Candidate, apiKey: string, city: string): 
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    console.error('Google Places search failed', response.status, detail);
     return { error: `Places API ${response.status}: ${detail.slice(0, 240)}` };
   }
 
@@ -160,6 +168,7 @@ async function searchPlace(candidate: Candidate, apiKey: string, city: string): 
       openingHours: place.regularOpeningHours?.weekdayDescriptions,
       placeType: typeLabel(primaryType),
       mapUrl: place.googleMapsUri || candidate.mapUrl,
+      verified: candidate.verified,
     },
   };
 }
@@ -190,10 +199,7 @@ export async function POST(request: NextRequest) {
 
     const candidates = extractCandidates(await listResponse.text());
     if (!candidates.length) {
-      return NextResponse.json(
-        { error: '저장목록의 실제 장소 항목을 확인하지 못했어요. 목록 공개 범위와 공유 링크를 확인해 주세요.' },
-        { status: 422 },
-      );
+      return NextResponse.json({ error: '저장목록에서 장소 링크를 읽지 못했어요. 목록 공개 범위와 공유 링크를 확인해 주세요.' }, { status: 422 });
     }
 
     const results: PlaceResult[] = [];
@@ -222,7 +228,8 @@ export async function POST(request: NextRequest) {
       }, { status: 422 });
     }
 
-    return NextResponse.json({ places, diagnostics: diagnostics.slice(0, 3), sourceUrl: listResponse.url });
+    const needsReview = places.some(place => place.verified === false);
+    return NextResponse.json({ places, needsReview, diagnostics: diagnostics.slice(0, 3), sourceUrl: listResponse.url });
   } catch (error) {
     console.error('Google Maps import failed', error);
     return NextResponse.json({ error: '저장목록을 가져오는 중 오류가 발생했어요.' }, { status: 500 });
