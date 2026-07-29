@@ -72,48 +72,49 @@ function uniqueCandidates(items: Candidate[]) {
 function extractCandidates(html: string) {
   const candidates: Candidate[] = [];
 
+  const visitItemList = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visitItemList);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+
+    const record = value as Record<string, unknown>;
+    const rawType = record['@type'];
+    const types = Array.isArray(rawType) ? rawType : [rawType];
+
+    if (types.includes('ItemList') && Array.isArray(record.itemListElement)) {
+      for (const element of record.itemListElement) {
+        if (!element || typeof element !== 'object') continue;
+        const entry = element as Record<string, unknown>;
+        const item = entry.item && typeof entry.item === 'object'
+          ? entry.item as Record<string, unknown>
+          : entry;
+        const title = typeof item.name === 'string'
+          ? item.name
+          : typeof entry.name === 'string'
+            ? entry.name
+            : '';
+        const mapUrl = typeof item.url === 'string'
+          ? item.url
+          : typeof entry.url === 'string'
+            ? entry.url
+            : undefined;
+
+        if (isValidTitle(title)) {
+          candidates.push({ title: cleanText(title), mapUrl });
+        }
+      }
+    }
+
+    Object.values(record).forEach(visitItemList);
+  };
+
   for (const match of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
-      const value = JSON.parse(match[1]);
-      const walk = (node: unknown) => {
-        if (Array.isArray(node)) return node.forEach(walk);
-        if (!node || typeof node !== 'object') return;
-        const record = node as Record<string, unknown>;
-        const name = typeof record.name === 'string' ? record.name : '';
-        const url = typeof record.url === 'string' ? record.url : undefined;
-        if (name && isValidTitle(name)) candidates.push({ title: cleanText(name), mapUrl: url });
-        Object.values(record).forEach(walk);
-      };
-      walk(value);
-    } catch {}
-  }
-
-  const decoded = cleanText(html);
-  const urlPatterns = [
-    /https?:\/\/(?:www\.)?google\.[^/]+\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
-    /\/maps\/place\/([^/?#"'\\]+)[^"'\\\s]*/g,
-  ];
-  for (const pattern of urlPatterns) {
-    for (const match of decoded.matchAll(pattern)) {
-      let title = cleanText(match[1] || '');
-      try { title = cleanText(decodeURIComponent(match[1] || '')); } catch {}
-      if (!isValidTitle(title)) continue;
-      const mapUrl = match[0].startsWith('http') ? match[0] : `https://www.google.com${match[0]}`;
-      candidates.push({ title, mapUrl });
-    }
-  }
-
-  for (const pattern of [/"name"\s*:\s*"((?:\\.|[^"\\]){2,160})"/g, /"title"\s*:\s*"((?:\\.|[^"\\]){2,160})"/g]) {
-    for (const match of decoded.matchAll(pattern)) {
-      const title = cleanText(match[1]);
-      if (isValidTitle(title)) candidates.push({ title });
-    }
-  }
-
-  if (!candidates.length) {
-    for (const match of decoded.matchAll(/"((?:\\.|[^"\\]){2,120})"/g)) {
-      const title = cleanText(match[1]);
-      if (isValidTitle(title) && /[\u3131-\uD79D\u3040-\u30ff\u3400-\u9fffA-Za-z]/.test(title)) candidates.push({ title });
+      visitItemList(JSON.parse(match[1]));
+    } catch {
+      // Ignore malformed structured-data blocks.
     }
   }
 
@@ -188,7 +189,12 @@ export async function POST(request: NextRequest) {
     if (!listResponse.ok) return NextResponse.json({ error: 'Google Maps 목록 페이지를 열지 못했어요.' }, { status: 502 });
 
     const candidates = extractCandidates(await listResponse.text());
-    if (!candidates.length) return NextResponse.json({ error: '목록 페이지에서 장소명을 읽지 못했어요.' }, { status: 422 });
+    if (!candidates.length) {
+      return NextResponse.json(
+        { error: '저장목록의 실제 장소 항목을 확인하지 못했어요. 목록 공개 범위와 공유 링크를 확인해 주세요.' },
+        { status: 422 },
+      );
+    }
 
     const results: PlaceResult[] = [];
     const diagnostics: string[] = [];
