@@ -12,6 +12,7 @@ type ImportedPlace = {
   openingHours?: string[];
   placeType?: string;
   mapUrl?: string;
+  verified?: boolean;
 };
 
 const normalize = (value = '') => value.toLocaleLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
@@ -31,6 +32,7 @@ export default function GoogleMapsImport({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
+  const [needsReview, setNeedsReview] = useState(false);
 
   const existingKeys = useMemo(
     () => new Set(existing.map(item => normalize(`${item.title}|${item.address || ''}`))),
@@ -58,6 +60,7 @@ export default function GoogleMapsImport({
     setError('');
     setDiagnostics([]);
     setPlaces([]);
+    setNeedsReview(false);
     try {
       const response = await fetch('/api/import/google-maps', {
         method: 'POST',
@@ -68,8 +71,13 @@ export default function GoogleMapsImport({
       setDiagnostics(Array.isArray(data.diagnostics) ? data.diagnostics : []);
       if (!response.ok) throw new Error(data.error || '목록을 가져오지 못했어요.');
       const found: ImportedPlace[] = data.places || [];
+      const review = Boolean(data.needsReview);
       setPlaces(found);
-      setSelected(Object.fromEntries(found.map(place => [place.id, !isDuplicate(place)])));
+      setNeedsReview(review);
+      setSelected(Object.fromEntries(found.map(place => [
+        place.id,
+        !isDuplicate(place) && place.verified !== false,
+      ])));
       if (!found.length) setError('목록에서 장소를 찾지 못했어요. 목록을 공유 가능 상태로 바꾼 뒤 다시 시도해 주세요.');
     } catch (e: any) {
       setError(e.message || '목록을 가져오지 못했어요.');
@@ -123,6 +131,11 @@ export default function GoogleMapsImport({
       </button>
 
       {error && <p className="error-message">{error}</p>}
+      {needsReview && (
+        <p className="notice">
+          Google이 저장목록 여부를 표시하지 않은 링크예요. 아래 후보 중 실제 저장한 장소만 체크해 주세요.
+        </p>
+      )}
       {diagnostics.length > 0 && (
         <details className="import-diagnostics">
           <summary>가져오기 진단 보기</summary>
@@ -133,8 +146,8 @@ export default function GoogleMapsImport({
       {places.length > 0 && (
         <>
           <div className="import-summary">
-            <b>{places.length}개의 장소를 찾았어요</b>
-            <small>{trip.city}를 포함해 검색하고, 한 번의 조회로 정보를 저장해요.</small>
+            <b>{places.length}개의 장소 후보를 찾았어요</b>
+            <small>{needsReview ? '실제 저장한 장소만 선택해 주세요.' : '확인된 저장목록 항목이에요.'}</small>
           </div>
           <div className="import-list">
             {places.map(place => {
@@ -150,9 +163,7 @@ export default function GoogleMapsImport({
                   <span className="import-check"><Check size={14} /></span>
                   <span className="import-place-copy">
                     <b>{place.title}</b>
-                    <small>🏷️ {place.placeType || '타입 정보 없음'}</small>
                     <small><MapPin size={12} />{place.address || '주소 정보 없음'}</small>
-                    <small>{place.openingHours?.length ? `🕒 ${place.openingHours[0]}` : '🕒 영업시간 정보 없음'}</small>
                   </span>
                   {duplicate ? <em>이미 있음</em> : place.mapUrl && <ExternalLink size={15} />}
                 </label>
