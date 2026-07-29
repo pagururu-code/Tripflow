@@ -12,33 +12,39 @@ export async function GET(req: NextRequest) {
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': key,
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.primaryType,places.primaryTypeDisplayName',
+      'X-Goog-FieldMask': [
+        'places.id',
+        'places.displayName',
+        'places.formattedAddress',
+        'places.shortFormattedAddress',
+        'places.location',
+        'places.regularOpeningHours',
+        'places.googleMapsUri',
+        'places.primaryType',
+        'places.types',
+      ].join(','),
     },
     body: JSON.stringify({
       textQuery: query,
       languageCode: 'ko',
-      maxResultCount: 1,
+      maxResultCount: 5,
     }),
     cache: 'no-store',
   });
 
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     return NextResponse.json(
-      { error: data?.error?.message ?? '장소 타입 검색에 실패했습니다.' },
+      { error: data?.error?.message ?? '장소 검색에 실패했습니다.' },
       { status: response.status },
     );
   }
 
-  const place = data.places?.[0];
-  if (!place) return NextResponse.json({ places: [] });
+  const places = (data.places ?? []).map((place: any) => ({
+    ...place,
+    formattedAddress: place.formattedAddress || place.shortFormattedAddress,
+    primaryType: place.primaryType || place.types?.[0],
+  }));
 
-  return NextResponse.json({
-    places: [{
-      id: place.id,
-      displayName: place.displayName,
-      primaryType: place.primaryType,
-      primaryTypeDisplayName: place.primaryTypeDisplayName,
-    }],
-  });
+  return NextResponse.json({ places });
 }
