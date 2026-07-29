@@ -17,6 +17,23 @@ type ImportedPlace = {
 
 const normalize = (value = '') => value.toLocaleLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
 
+function parsePlaceNames(value: string) {
+  const seen = new Set<string>();
+  return value
+    .split(/\r?\n/)
+    .map(line => line
+      .replace(/^\s*(?:[-*•·▪︎◦]|\d+[.)]|\([0-9]+\))\s*/, '')
+      .trim())
+    .filter(Boolean)
+    .filter(name => {
+      const key = normalize(name);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 30);
+}
+
 export default function GoogleMapsImport({
   trip,
   existing,
@@ -27,6 +44,7 @@ export default function GoogleMapsImport({
   onAdd: (items: InboxItem[]) => void;
 }) {
   const [url, setUrl] = useState('');
+  const [placeNames, setPlaceNames] = useState('');
   const [places, setPlaces] = useState<ImportedPlace[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
@@ -43,17 +61,33 @@ export default function GoogleMapsImport({
     existingKeys.has(normalize(`${place.title}|${place.address || ''}`)) ||
     existing.some(item => normalize(item.title) === normalize(place.title));
 
-  const paste = async () => {
+  const showPlaces = (found: ImportedPlace[], review = false) => {
+    const unique = found.filter((place, index, all) =>
+      all.findIndex(other => other.id === place.id || (
+        normalize(other.title) === normalize(place.title) &&
+        normalize(other.address || '') === normalize(place.address || '')
+      )) === index,
+    );
+    setPlaces(unique);
+    setNeedsReview(review);
+    setSelected(Object.fromEntries(unique.map(place => [
+      place.id,
+      !isDuplicate(place) && place.verified !== false,
+    ])));
+  };
+
+  const paste = async (target: 'url' | 'names') => {
     try {
       const text = await navigator.clipboard.readText();
-      setUrl(text);
+      if (target === 'url') setUrl(text);
+      else setPlaceNames(text);
       setError('');
     } catch {
-      setError('클립보드를 읽지 못했어요. 링크를 길게 눌러 붙여넣어 주세요.');
+      setError('클립보드를 읽지 못했어요. 입력창을 길게 눌러 붙여넣어 주세요.');
     }
   };
 
-  const load = async () => {
+  const loadLink = async () => {
     const value = url.trim();
     if (!value) return setError('Google Maps 저장목록 링크를 넣어 주세요.');
     setLoading(true);
@@ -69,18 +103,64 @@ export default function GoogleMapsImport({
       });
       const data = await response.json();
       setDiagnostics(Array.isArray(data.diagnostics) ? data.diagnostics : []);
-      if (!response.ok) throw new Error(data.error || '목록을 가져오지 못했어요.');
+      if (!response.ok) throw new Error(data.error || '목록을 가져오지 못했어요. 아래 장소명 목록 가져오기를 이용해 주세요.');
       const found: ImportedPlace[] = data.places || [];
-      const review = Boolean(data.needsReview);
-      setPlaces(found);
-      setNeedsReview(review);
-      setSelected(Object.fromEntries(found.map(place => [
-        place.id,
-        !isDuplicate(place) && place.verified !== false,
-      ])));
-      if (!found.length) setError('목록에서 장소를 찾지 못했어요. 목록을 공유 가능 상태로 바꾼 뒤 다시 시도해 주세요.');
+      showPlaces(found, Boolean(data.needsReview));
+      if (!found.length) setError('목록에서 장소를 찾지 못했어요. 아래에 장소명을 한 줄씩 붙여넣어 주세요.');
     } catch (e: any) {
-      setError(e.message || '목록을 가져오지 못했어요.');
+      setError(`${e.message || '목록을 가져오지 못했어요.'} 아래 장소명 목록 가져오기를 이용해 주세요.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadNames = async () => {
+    const names = parsePlaceNames(placeNames);
+    if (!names.length) return setError('장소명을 한 줄에 하나씩 넣어 주세요.');
+    setLoading(true);
+    setError('');
+    setDiagnostics([]);
+    setPlaces([]);
+    setNeedsReview(false);
+
+    const found: ImportedPlace[] = [];
+    const failed: string[] = [];
+    try {
+      for (let index = 0; index < names.length; index += 5) {
+        const batch = names.slice(index, index + 5);
+        const results = await Promise.all(batch.map(async name => {
+          const query = [name, trip.city].filter(Boolean).join(' ');
+          try {
+            const response = await fetch(`/api/places/search?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '검색 실패');
+            const place = data.places?.[0];
+            if (!place) return { name };
+            return {
+              name,
+              place: {
+                id: place.id || crypto.randomUUID(),
+                title: place.displayName?.text || name,
+                address: place.formattedAddress || place.shortFormattedAddress,
+                location: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : undefined,
+                openingHours: place.regularOpeningHours?.weekdayDescriptions,
+                mapUrl: place.googleMapsUri,
+                verified: true,
+              } as ImportedPlace,
+            };
+          } catch {
+            return { name };
+          }
+        }));
+        results.forEach(result => {
+          if (result.place) found.push(result.place);
+          else failed.push(result.name);
+        });
+      }
+
+      showPlaces(found, true);
+      if (failed.length) setDiagnostics([`검색하지 못한 장소: ${failed.join(', ')}`]);
+      if (!found.length) setError('장소를 찾지 못했어요. 도시명이나 지점명을 함께 적어 다시 검색해 주세요.');
     } finally {
       setLoading(false);
     }
@@ -108,10 +188,10 @@ export default function GoogleMapsImport({
   return (
     <div className="maps-import">
       <h2>가져오기</h2>
-      <p className="sub">Google Maps 저장목록의 공유 링크를 붙여넣어 주세요.</p>
+      <p className="sub">Google Maps 저장목록을 링크나 장소명 목록으로 가져올 수 있어요.</p>
 
-      <label>
-        저장목록 링크
+      <section className="import-method">
+        <h3>저장목록 링크</h3>
         <div className="import-url-row">
           <input
             value={url}
@@ -119,26 +199,45 @@ export default function GoogleMapsImport({
             placeholder="https://maps.app.goo.gl/..."
             inputMode="url"
             autoCapitalize="none"
+            aria-label="저장목록 링크"
           />
-          <button type="button" className="ghost paste-button" onClick={paste}>
+          <button type="button" className="ghost paste-button" onClick={() => paste('url')}>
             <Clipboard size={16} /> 붙여넣기
           </button>
         </div>
-      </label>
+        <button className="primary full" disabled={loading || !url.trim()} onClick={loadLink}>
+          {loading ? '장소 정보 읽는 중…' : '링크로 가져오기'}
+        </button>
+      </section>
 
-      <button className="primary full" disabled={loading || !url.trim()} onClick={load}>
-        {loading ? '장소 정보 읽는 중…' : '가져오기'}
-      </button>
+      <div className="import-divider"><span>또는</span></div>
+
+      <section className="import-method">
+        <h3>장소명 목록</h3>
+        <p className="import-help">Google Maps 목록을 보면서 장소명을 한 줄에 하나씩 붙여넣어 주세요.</p>
+        <textarea
+          value={placeNames}
+          onChange={event => setPlaceNames(event.target.value)}
+          placeholder={'스프카레 가라쿠\n니조시장\n모이와야마 전망대'}
+          rows={6}
+        />
+        <div className="two">
+          <button type="button" className="ghost" onClick={() => paste('names')}>
+            <Clipboard size={16} /> 목록 붙여넣기
+          </button>
+          <button className="primary" disabled={loading || !placeNames.trim()} onClick={loadNames}>
+            {loading ? '검색 중…' : '장소 일괄 검색'}
+          </button>
+        </div>
+      </section>
 
       {error && <p className="error-message">{error}</p>}
-      {needsReview && (
-        <p className="notice">
-          Google이 저장목록 여부를 표시하지 않은 링크예요. 아래 후보 중 실제 저장한 장소만 체크해 주세요.
-        </p>
+      {needsReview && places.length > 0 && (
+        <p className="notice">검색 결과가 맞는지 확인하고 실제 저장한 장소만 체크해 주세요.</p>
       )}
       {diagnostics.length > 0 && (
         <details className="import-diagnostics">
-          <summary>가져오기 진단 보기</summary>
+          <summary>확인할 내용</summary>
           {diagnostics.map((message, index) => <p key={`${message}-${index}`}>{message}</p>)}
         </details>
       )}
@@ -147,7 +246,7 @@ export default function GoogleMapsImport({
         <>
           <div className="import-summary">
             <b>{places.length}개의 장소 후보를 찾았어요</b>
-            <small>{needsReview ? '실제 저장한 장소만 선택해 주세요.' : '확인된 저장목록 항목이에요.'}</small>
+            <small>장소명과 주소를 확인한 뒤 추가할 항목만 선택해 주세요.</small>
           </div>
           <div className="import-list">
             {places.map(place => {
