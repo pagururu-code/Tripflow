@@ -10,45 +10,19 @@ type PlaceResult = {
   placeType?: string;
   mapUrl?: string;
 };
+type SearchOutcome = { place?: PlaceResult; error?: string };
 
 const TYPE_LABELS: Record<string, string> = {
-  restaurant: '음식점',
-  cafe: '카페',
-  coffee_shop: '카페',
-  bakery: '베이커리',
-  bar: '바',
-  pub: '펍',
-  japanese_restaurant: '일식당',
-  korean_restaurant: '한식당',
-  chinese_restaurant: '중식당',
-  ramen_restaurant: '라멘집',
-  sushi_restaurant: '스시·초밥집',
-  curry_restaurant: '카레 전문점',
-  seafood_restaurant: '해산물 식당',
-  dessert_shop: '디저트 가게',
-  ice_cream_shop: '아이스크림 가게',
-  shopping_mall: '쇼핑몰',
-  department_store: '백화점',
-  store: '상점',
-  clothing_store: '의류 매장',
-  souvenir_store: '기념품점',
-  market: '시장',
-  museum: '박물관',
-  art_gallery: '미술관',
-  tourist_attraction: '관광명소',
-  park: '공원',
-  garden: '정원',
-  observation_deck: '전망대',
-  shrine: '신사',
-  temple: '사찰',
-  church: '교회',
-  spa: '스파',
-  hot_spring: '온천',
-  hotel: '호텔',
-  lodging: '숙소',
-  train_station: '기차역',
-  transit_station: '교통시설',
-  airport: '공항',
+  restaurant: '음식점', cafe: '카페', coffee_shop: '카페', bakery: '베이커리',
+  bar: '바', pub: '펍', japanese_restaurant: '일식당', korean_restaurant: '한식당',
+  chinese_restaurant: '중식당', ramen_restaurant: '라멘집', sushi_restaurant: '스시·초밥집',
+  curry_restaurant: '카레 전문점', seafood_restaurant: '해산물 식당', dessert_shop: '디저트 가게',
+  ice_cream_shop: '아이스크림 가게', shopping_mall: '쇼핑몰', department_store: '백화점',
+  store: '상점', clothing_store: '의류 매장', souvenir_store: '기념품점', market: '시장',
+  museum: '박물관', art_gallery: '미술관', tourist_attraction: '관광명소', park: '공원',
+  garden: '정원', observation_deck: '전망대', shrine: '신사', temple: '사찰', church: '교회',
+  spa: '스파', hot_spring: '온천', hotel: '호텔', lodging: '숙소', train_station: '기차역',
+  transit_station: '교통시설', airport: '공항', tourist_information_center: '관광안내소',
 };
 
 function cleanText(value = '') {
@@ -70,10 +44,7 @@ function cleanText(value = '') {
 }
 
 function normalize(value = '') {
-  return cleanText(value)
-    .normalize('NFKC')
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]/gu, '');
+  return cleanText(value).normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 function isValidTitle(value: string) {
@@ -114,9 +85,7 @@ function extractCandidates(html: string) {
         Object.values(record).forEach(walk);
       };
       walk(value);
-    } catch {
-      // Continue with other extraction strategies.
-    }
+    } catch {}
   }
 
   const decoded = cleanText(html);
@@ -144,9 +113,7 @@ function extractCandidates(html: string) {
   if (!candidates.length) {
     for (const match of decoded.matchAll(/"((?:\\.|[^"\\]){2,120})"/g)) {
       const title = cleanText(match[1]);
-      if (isValidTitle(title) && /[\u3131-\uD79D\u3040-\u30ff\u3400-\u9fffA-Za-z]/.test(title)) {
-        candidates.push({ title });
-      }
+      if (isValidTitle(title) && /[\u3131-\uD79D\u3040-\u30ff\u3400-\u9fffA-Za-z]/.test(title)) candidates.push({ title });
     }
   }
 
@@ -155,52 +122,44 @@ function extractCandidates(html: string) {
 
 function typeLabel(primaryType?: string) {
   if (!primaryType) return undefined;
-  return TYPE_LABELS[primaryType] || primaryType
-    .split('_')
-    .filter(Boolean)
-    .map(word => word[0]?.toUpperCase() + word.slice(1))
-    .join(' ');
+  return TYPE_LABELS[primaryType] || primaryType.split('_').filter(Boolean).map(word => word[0]?.toUpperCase() + word.slice(1)).join(' ');
 }
 
-async function searchPlace(candidate: Candidate, apiKey: string): Promise<PlaceResult | null> {
+async function searchPlace(candidate: Candidate, apiKey: string, city: string): Promise<SearchOutcome> {
+  const textQuery = [candidate.title, city].filter(Boolean).join(' ');
   const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': apiKey,
-      // Keep this to one request per place. primaryTypeDisplayName is intentionally
-      // excluded because an unsupported field makes the entire Places request fail.
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri,places.primaryType',
+      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.location,places.regularOpeningHours,places.googleMapsUri,places.primaryType,places.types',
     },
-    body: JSON.stringify({
-      textQuery: candidate.title,
-      languageCode: 'ko',
-      maxResultCount: 1,
-    }),
+    body: JSON.stringify({ textQuery, languageCode: 'ko', maxResultCount: 1 }),
     cache: 'no-store',
   });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     console.error('Google Places search failed', response.status, detail);
-    return null;
+    return { error: `Places API ${response.status}: ${detail.slice(0, 240)}` };
   }
 
   const data = await response.json();
   const place = data.places?.[0];
   const title = place?.displayName?.text;
-  if (!place || !title) return null;
+  if (!place || !title) return { error: `검색 결과 없음: ${textQuery}` };
 
+  const primaryType = place.primaryType || place.types?.[0];
   return {
-    id: place.id || normalize(title) || crypto.randomUUID(),
-    title,
-    address: place.formattedAddress,
-    location: place.location
-      ? { lat: place.location.latitude, lng: place.location.longitude }
-      : undefined,
-    openingHours: place.regularOpeningHours?.weekdayDescriptions,
-    placeType: typeLabel(place.primaryType),
-    mapUrl: place.googleMapsUri || candidate.mapUrl,
+    place: {
+      id: place.id || normalize(title) || crypto.randomUUID(),
+      title,
+      address: place.formattedAddress || place.shortFormattedAddress,
+      location: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : undefined,
+      openingHours: place.regularOpeningHours?.weekdayDescriptions,
+      placeType: typeLabel(primaryType),
+      mapUrl: place.googleMapsUri || candidate.mapUrl,
+    },
   };
 }
 
@@ -208,44 +167,38 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const input = String(body.url || '').trim();
+    const city = String(body.city || '').trim();
     let url: URL;
-    try {
-      url = new URL(input);
-    } catch {
-      return NextResponse.json({ error: '올바른 Google Maps 링크가 아니에요.' }, { status: 400 });
-    }
+    try { url = new URL(input); }
+    catch { return NextResponse.json({ error: '올바른 Google Maps 링크가 아니에요.' }, { status: 400 }); }
 
     const allowed = /(^|\.)google\.[^/]+$|(^|\.)goo\.gl$/.test(url.hostname) || url.hostname === 'maps.app.goo.gl';
     if (!allowed) return NextResponse.json({ error: 'Google Maps 공유 링크만 사용할 수 있어요.' }, { status: 400 });
 
     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: 'Vercel에 GOOGLE_MAPS_API_KEY가 설정되지 않았어요.' }, { status: 500 });
-    }
+    if (!apiKey) return NextResponse.json({ error: 'Vercel에 GOOGLE_MAPS_API_KEY가 설정되지 않았어요.' }, { status: 500 });
 
     const listResponse = await fetch(url.toString(), {
-      redirect: 'follow',
-      cache: 'no-store',
+      redirect: 'follow', cache: 'no-store',
       headers: {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1',
         'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
       },
     });
-
-    if (!listResponse.ok) {
-      return NextResponse.json({ error: 'Google Maps 목록 페이지를 열지 못했어요.' }, { status: 502 });
-    }
+    if (!listResponse.ok) return NextResponse.json({ error: 'Google Maps 목록 페이지를 열지 못했어요.' }, { status: 502 });
 
     const candidates = extractCandidates(await listResponse.text());
-    if (!candidates.length) {
-      return NextResponse.json({ error: '목록 페이지에서 장소명을 읽지 못했어요.' }, { status: 422 });
-    }
+    if (!candidates.length) return NextResponse.json({ error: '목록 페이지에서 장소명을 읽지 못했어요.' }, { status: 422 });
 
     const results: PlaceResult[] = [];
+    const diagnostics: string[] = [];
     for (let index = 0; index < candidates.length; index += 5) {
       const batch = candidates.slice(index, index + 5);
-      const places = await Promise.all(batch.map(candidate => searchPlace(candidate, apiKey)));
-      results.push(...places.filter((place): place is PlaceResult => Boolean(place)));
+      const outcomes = await Promise.all(batch.map(candidate => searchPlace(candidate, apiKey, city)));
+      outcomes.forEach(outcome => {
+        if (outcome.place) results.push(outcome.place);
+        if (outcome.error) diagnostics.push(outcome.error);
+      });
     }
 
     const seen = new Set<string>();
@@ -257,10 +210,13 @@ export async function POST(request: NextRequest) {
     });
 
     if (!places.length) {
-      return NextResponse.json({ error: 'Google Places에서 장소 정보를 가져오지 못했어요. API 설정을 확인해 주세요.' }, { status: 422 });
+      return NextResponse.json({
+        error: diagnostics[0] || 'Google Places에서 장소 정보를 가져오지 못했어요.',
+        diagnostics: diagnostics.slice(0, 3),
+      }, { status: 422 });
     }
 
-    return NextResponse.json({ places, sourceUrl: listResponse.url });
+    return NextResponse.json({ places, diagnostics: diagnostics.slice(0, 3), sourceUrl: listResponse.url });
   } catch (error) {
     console.error('Google Maps import failed', error);
     return NextResponse.json({ error: '저장목록을 가져오는 중 오류가 발생했어요.' }, { status: 500 });
