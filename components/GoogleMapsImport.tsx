@@ -17,6 +17,11 @@ type ImportedPlace = {
 
 const normalize = (value = '') => value.toLocaleLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
 
+const parsePlaceUrls = (value: string) => {
+  const matches = value.match(/https?:\/\/[^\s,]+/gi) || [];
+  return [...new Set(matches.map(url => url.trim()).filter(Boolean))];
+};
+
 export default function GoogleMapsImport({
   trip,
   existing,
@@ -34,6 +39,7 @@ export default function GoogleMapsImport({
   const [error, setError] = useState('');
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [needsReview, setNeedsReview] = useState(false);
+  const [placeProgress, setPlaceProgress] = useState<{ current: number; total: number } | null>(null);
 
   const existingKeys = useMemo(
     () => new Set(existing.map(item => normalize(`${item.title}|${item.address || ''}`))),
@@ -98,28 +104,51 @@ export default function GoogleMapsImport({
   };
 
   const loadPlace = async () => {
-    const value = placeUrl.trim();
-    if (!value) return setError('Google 지도 장소 링크를 넣어 주세요.');
+    const urls = parsePlaceUrls(placeUrl);
+    if (!urls.length) return setError('Google 지도 장소 링크를 1개 이상 넣어 주세요.');
+
     setLoadingMode('place');
     setError('');
     setDiagnostics([]);
     setPlaces([]);
     setNeedsReview(false);
+    setPlaceProgress({ current: 0, total: urls.length });
+
+    const found: ImportedPlace[] = [];
+    const failed: string[] = [];
+
     try {
-      const response = await fetch('/api/import/google-place', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: value, city: trip.city }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '장소를 가져오지 못했어요.');
-      const place: ImportedPlace | undefined = data.place;
-      if (!place) throw new Error('장소 정보를 찾지 못했어요.');
-      showPlaces([place], false);
-    } catch (e: any) {
-      setError(e.message || '장소를 가져오지 못했어요.');
+      for (let index = 0; index < urls.length; index += 1) {
+        const url = urls[index];
+        setPlaceProgress({ current: index + 1, total: urls.length });
+
+        try {
+          const response = await fetch('/api/import/google-place', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, city: trip.city }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || '장소를 가져오지 못했어요.');
+          const place: ImportedPlace | undefined = data.place;
+          if (!place) throw new Error('장소 정보를 찾지 못했어요.');
+          found.push(place);
+        } catch (e: any) {
+          failed.push(`${index + 1}번째 링크: ${e.message || '가져오기 실패'}`);
+        }
+      }
+
+      showPlaces(found, false);
+      setDiagnostics(failed);
+
+      if (!found.length) {
+        setError('입력한 링크에서 장소를 가져오지 못했어요.');
+      } else if (failed.length) {
+        setError(`${found.length}개는 불러왔지만 ${failed.length}개는 실패했어요.`);
+      }
     } finally {
       setLoadingMode(null);
+      setPlaceProgress(null);
     }
   };
 
@@ -145,7 +174,7 @@ export default function GoogleMapsImport({
   return (
     <div className="maps-import">
       <h2>가져오기</h2>
-      <p className="sub">Google Maps 저장목록이나 장소 하나를 링크로 가져올 수 있어요.</p>
+      <p className="sub">Google Maps 저장목록이나 개별 장소 링크를 가져올 수 있어요.</p>
 
       <section className="import-method">
         <h3>저장목록 링크</h3>
@@ -172,22 +201,35 @@ export default function GoogleMapsImport({
 
       <section className="import-method">
         <h3>Google 지도 장소 링크</h3>
-        <p className="import-help">Google 지도에서 장소 하나를 연 뒤 공유 링크를 붙여넣어 주세요.</p>
-        <div className="import-url-row">
-          <input
+        <p className="import-help">링크 1개 또는 여러 개를 줄바꿈이나 쉼표로 구분해 붙여넣어 주세요.</p>
+        <div className="import-url-row" style={{ alignItems: 'stretch' }}>
+          <textarea
             value={placeUrl}
             onChange={event => setPlaceUrl(event.target.value)}
-            placeholder="https://maps.app.goo.gl/..."
+            placeholder={'https://maps.app.goo.gl/...\nhttps://maps.app.goo.gl/...'}
             inputMode="url"
             autoCapitalize="none"
             aria-label="Google 지도 장소 링크"
+            rows={4}
+            style={{
+              width: '100%',
+              minHeight: 104,
+              resize: 'vertical',
+              border: '1px solid #d9d6ce',
+              background: 'white',
+              borderRadius: 14,
+              padding: 13,
+              font: 'inherit',
+            }}
           />
           <button type="button" className="ghost paste-button" onClick={() => paste('place')}>
             <Clipboard size={16} /> 붙여넣기
           </button>
         </div>
         <button className="primary full" disabled={Boolean(loadingMode) || !placeUrl.trim()} onClick={loadPlace}>
-          {loadingMode === 'place' ? '장소 읽는 중…' : '장소 가져오기'}
+          {loadingMode === 'place'
+            ? `${placeProgress?.current || 0}/${placeProgress?.total || 0} 읽는 중…`
+            : '장소 가져오기'}
         </button>
       </section>
 
