@@ -30,6 +30,7 @@ export default function GoogleMapsImport({
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
 
   const existingKeys = useMemo(
     () => new Set(existing.map(item => normalize(`${item.title}|${item.address || ''}`))),
@@ -55,14 +56,16 @@ export default function GoogleMapsImport({
     if (!value) return setError('Google Maps 저장목록 링크를 넣어 주세요.');
     setLoading(true);
     setError('');
+    setDiagnostics([]);
     setPlaces([]);
     try {
       const response = await fetch('/api/import/google-maps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: value }),
+        body: JSON.stringify({ url: value, city: trip.city }),
       });
       const data = await response.json();
+      setDiagnostics(Array.isArray(data.diagnostics) ? data.diagnostics : []);
       if (!response.ok) throw new Error(data.error || '목록을 가져오지 못했어요.');
       const found: ImportedPlace[] = data.places || [];
       setPlaces(found);
@@ -120,12 +123,18 @@ export default function GoogleMapsImport({
       </button>
 
       {error && <p className="error-message">{error}</p>}
+      {diagnostics.length > 0 && (
+        <details className="import-diagnostics">
+          <summary>가져오기 진단 보기</summary>
+          {diagnostics.map((message, index) => <p key={`${message}-${index}`}>{message}</p>)}
+        </details>
+      )}
 
       {places.length > 0 && (
         <>
           <div className="import-summary">
             <b>{places.length}개의 장소를 찾았어요</b>
-            <small>타입과 요일별 영업시간도 한 번의 조회로 함께 저장돼요.</small>
+            <small>{trip.city}를 포함해 검색하고, 한 번의 조회로 정보를 저장해요.</small>
           </div>
           <div className="import-list">
             {places.map(place => {
@@ -141,8 +150,9 @@ export default function GoogleMapsImport({
                   <span className="import-check"><Check size={14} /></span>
                   <span className="import-place-copy">
                     <b>{place.title}</b>
-                    {place.placeType && <small>🏷️ {place.placeType}</small>}
+                    <small>🏷️ {place.placeType || '타입 정보 없음'}</small>
                     <small><MapPin size={12} />{place.address || '주소 정보 없음'}</small>
+                    <small>{place.openingHours?.length ? `🕒 ${place.openingHours[0]}` : '🕒 영업시간 정보 없음'}</small>
                   </span>
                   {duplicate ? <em>이미 있음</em> : place.mapUrl && <ExternalLink size={15} />}
                 </label>
