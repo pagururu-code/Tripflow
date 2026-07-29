@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function withTripflowType(mapUrl: string | undefined, primaryType: string | undefined) {
+  if (!mapUrl || !primaryType) return mapUrl;
+  try {
+    const url = new URL(mapUrl);
+    url.searchParams.set('tf_type', primaryType);
+    return url.toString();
+  } catch {
+    return mapUrl;
+  }
+}
+
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get('q')?.trim();
   if (!query) return NextResponse.json({ error: '검색어가 필요합니다.' }, { status: 400 });
@@ -40,11 +51,15 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const places = (data.places ?? []).map((place: any) => ({
-    ...place,
-    formattedAddress: place.formattedAddress || place.shortFormattedAddress,
-    primaryType: place.primaryType || place.types?.[0],
-  }));
+  const places = (data.places ?? []).map((place: any) => {
+    const primaryType = place.primaryType || place.types?.[0];
+    return {
+      ...place,
+      formattedAddress: place.formattedAddress || place.shortFormattedAddress,
+      primaryType,
+      googleMapsUri: withTripflowType(place.googleMapsUri, primaryType),
+    };
+  });
 
   return NextResponse.json({ places });
 }
