@@ -44,6 +44,14 @@ function detailsMarkup(item:PlaceLike, schedule=false) {
   const wrap = document.createElement('div');
   wrap.className = 'tf-place-details';
   wrap.dataset.signature = itemSignature(item,schedule);
+  if (schedule) {
+    if (!warning) return null;
+    const row = document.createElement('p');
+    row.className = `tf-hours-warning${warning.startsWith('🟠') ? ' soon' : ''}`;
+    row.textContent = warning;
+    wrap.appendChild(row);
+    return wrap;
+  }
   if (item.placeType) {
     const type = document.createElement('p');
     type.textContent = `🏷️ ${item.placeType}`;
@@ -103,8 +111,8 @@ function enhance() {
   const schedules = data.schedules.filter(item => item.tripId === trip.id);
 
   document.querySelectorAll<HTMLElement>('.schedule-card').forEach(card => {
-    const title = card.querySelector('h3')?.textContent?.trim();
-    const item = schedules.find(entry => entry.title === title && entry.openingHours?.length);
+    const id = card.dataset.scheduleId;
+    const item = schedules.find(entry => entry.id === id && entry.openingHours?.length);
     if (item) syncDetails(card,item,true,card);
   });
 }

@@ -4,19 +4,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ChevronRight, ExternalLink, FolderHeart, MapPin, Pencil, Plus, SlidersHorizontal, X } from 'lucide-react';
 import type { AppData, InboxItem } from '@/lib/types';
-import { leadingEmoji, placeEmoji, stripLeadingEmoji } from '@/utils/emoji';
+import { placeEmoji, stripLeadingEmoji } from '@/utils/emoji';
 import { businessDayForDate, closedDays, datesInRange, descriptionForDate, timeBadge, visitableDates } from '@/lib/businessHours';
 import { activeFilterCount, EMPTY_INBOX_FILTERS, matchesInboxFilters, normalizeFilters, type InboxFilters } from '@/lib/inboxFilters';
+import { inboxPlaceIcon, inboxRegion, inferInboxRegion, INBOX_ICON_KEY, INBOX_META_KEY, type InboxIconMap, type InboxMetaMap } from '@/lib/inboxPresentation';
 
 type Bucket = { id:string; tripId:string; name:string; emoji:string };
-type ItemMeta = { region?:string; bucketIds?:string[] };
-type MetaMap = Record<string, ItemMeta>;
 type ViewMode = 'all'|'region'|'bucket';
 
 const BUCKET_KEY = 'tripflow-buckets-v1';
-const META_KEY = 'tripflow-inbox-meta-v1';
+const META_KEY = INBOX_META_KEY;
 const APP_KEY = 'tripflow-v2';
-const ICON_KEY = 'tripflow-inbox-icons-v1';
+const ICON_KEY = INBOX_ICON_KEY;
 const BUSINESS_INFO_KEY = 'tripflow-inbox-business-info-v1';
 const FILTER_KEY = 'tripflow-inbox-filters-v1';
 const INBOX_EMOJIS = ['📍','🍽️','☕','🍸','🛍️','🌿','🏛️','🏨','🚉','♨️','🍣','🍜','🍛','🍰','🌃','📷','✨'];
@@ -32,36 +31,7 @@ const firstEmoji = (value:string) => {
   return /\p{Extended_Pictographic}|\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3/u.test(grapheme) ? grapheme : '';
 };
 
-function normalize(value:string) { return value.toLowerCase().replace(/\s+/g,' '); }
 function timePart(value:string) { const index = value.indexOf(':'); return index >= 0 ? value.slice(index + 1).trim() : value; }
-
-function inferRegion(item:InboxItem, city:string) {
-  const text = normalize(`${item.title} ${item.address || ''}`);
-  const aliases:[RegExp,string][] = [
-    [/(susukino|すすきの|ススキノ|薄野|스스키노|狸小路|tanukikoji|다누키코지)/i,'스스키노'],
-    [/(odori|大通|오도리|二条市場|nijo market|니조시장)/i,'오도리'],
-    [/(sapporo station|札幌駅|삿포로역|jr tower|ステラプレイス)/i,'삿포로역'],
-    [/(maruyama|円山|마루야마|北海道神宮)/i,'마루야마'],
-    [/(nakajima|中島公園|나카지마)/i,'나카지마공원'],
-    [/(otaru|小樽|오타루)/i,'오타루'], [/(shibuya|渋谷|시부야)/i,'시부야'],
-    [/(shinjuku|新宿|신주쿠)/i,'신주쿠'], [/(asakusa|浅草|아사쿠사)/i,'아사쿠사'],
-    [/(ueno|上野|우에노)/i,'우에노'], [/(ginza|銀座|긴자)/i,'긴자'],
-    [/(namba|難波|なんば|난바)/i,'난바'], [/(umeda|梅田|우메다)/i,'우메다'],
-    [/(shinsaibashi|心斎橋|신사이바시)/i,'신사이바시'], [/(gion|祇園|기온)/i,'기온'],
-    [/(arashiyama|嵐山|아라시야마)/i,'아라시야마'], [/(seongsu|성수)/i,'성수'],
-    [/(hongdae|홍대|연남)/i,'홍대·연남'], [/(myeongdong|명동)/i,'명동'],
-  ];
-  const matched = aliases.find(([pattern]) => pattern.test(text));
-  if (matched) return matched[1];
-  const address = item.address || '';
-  const station = address.match(/([\p{L}\d·.\- ]{2,20})(?:역|駅| Station)/u);
-  if (station?.[1]) return `${station[1].trim()}역`;
-  const ward = address.match(/([\p{L}]{2,16})(?:구|区| Ward)/u);
-  if (ward?.[1]) return ward[1].trim();
-  const cityMatch = address.match(/([\p{L}]{2,18})(?:시|市| City)/u);
-  if (cityMatch?.[1] && !normalize(city).includes(normalize(cityMatch[1]))) return cityMatch[1].trim();
-  return city || '지역 미정';
-}
 
 function Card({item,icon,region,showBusinessInfo,onIcon,onOpen}:{item:InboxItem;icon:string;region:string;showBusinessInfo:boolean;onIcon:()=>void;onOpen:()=>void}) {
   const closures = closedDays(item.openingHours);
@@ -76,8 +46,8 @@ export default function InboxOrganizer() {
   const [host, setHost] = useState<HTMLElement|null>(null);
   const [data, setData] = useState<AppData|null>(null);
   const [buckets, setBuckets] = useState<Bucket[]>([]);
-  const [meta, setMeta] = useState<MetaMap>({});
-  const [icons, setIcons] = useState<Record<string,string>>({});
+  const [meta, setMeta] = useState<InboxMetaMap>({});
+  const [icons, setIcons] = useState<InboxIconMap>({});
   const [showBusinessInfo, setShowBusinessInfo] = useState(true);
   const [iconPicker, setIconPicker] = useState<InboxItem|null>(null);
   const [showCustomIcon, setShowCustomIcon] = useState(false);
@@ -100,8 +70,8 @@ export default function InboxOrganizer() {
       const raw = localStorage.getItem(APP_KEY) || '';
       if (raw !== lastRaw) { lastRaw = raw; setData(readJSON<AppData|null>(APP_KEY, null)); }
       setBuckets(readJSON<Bucket[]>(BUCKET_KEY, []));
-      setMeta(readJSON<MetaMap>(META_KEY, {}));
-      setIcons(readJSON<Record<string,string>>(ICON_KEY, {}));
+      setMeta(readJSON<InboxMetaMap>(META_KEY, {}));
+      setIcons(readJSON<InboxIconMap>(ICON_KEY, {}));
       setShowBusinessInfo(localStorage.getItem(BUSINESS_INFO_KEY) !== 'false');
       const panel = [...document.querySelectorAll<HTMLElement>('.panel')].find(el => el.querySelector('h2')?.textContent?.trim() === 'Inbox');
       if (!panel) { setHost(null); return; }
@@ -122,8 +92,8 @@ export default function InboxOrganizer() {
   const trip = data?.trips.find(t => t.id === data.activeTripId) || data?.trips[0];
   const items = useMemo(() => data && trip ? data.inbox.filter(item => item.tripId === trip.id) : [], [data, trip]);
   const tripBuckets = useMemo(() => trip ? buckets.filter(bucket => bucket.tripId === trip.id) : [], [buckets, trip]);
-  const regionFor = (item:InboxItem) => meta[item.id]?.region || (trip ? inferRegion(item,trip.city) : '지역 미정');
-  const iconFor = (item:InboxItem) => icons[item.id]||leadingEmoji(item.title)||placeEmoji(item.title,item.placeType);
+  const regionFor = (item:InboxItem) => trip ? inboxRegion(item,trip.city,meta) : '지역 미정';
+  const iconFor = (item:InboxItem) => inboxPlaceIcon(item,icons);
   const availableRegions = useMemo(() => [...new Set(items.map(regionFor))].sort((a,b)=>a==='지역 미정'?1:b==='지역 미정'?-1:a.localeCompare(b,'ko')), [items,meta,trip]);
   const placeTypes = useMemo(() => [...new Set(items.map(item=>item.placeType).filter((value):value is string=>Boolean(value)))].sort((a,b)=>a.localeCompare(b,'ko')), [items]);
   const filteredItems = useMemo(() => {
@@ -134,11 +104,11 @@ export default function InboxOrganizer() {
   useEffect(() => {
     if (!trip || !items.length) return;
     let changed = false; const next = {...meta};
-    items.forEach(item => { if (!next[item.id]?.region) { next[item.id] = {...next[item.id],region:inferRegion(item,trip.city),bucketIds:next[item.id]?.bucketIds||[]}; changed = true; } });
+    items.forEach(item => { if (!next[item.id]?.region) { next[item.id] = {...next[item.id],region:inferInboxRegion(item,trip.city),bucketIds:next[item.id]?.bucketIds||[]}; changed = true; } });
     if (changed) { setMeta(next); localStorage.setItem(META_KEY,JSON.stringify(next)); }
   }, [items,trip]);
 
-  const saveMeta = (next:MetaMap) => { setMeta(next); localStorage.setItem(META_KEY,JSON.stringify(next)); };
+  const saveMeta = (next:InboxMetaMap) => { setMeta(next); localStorage.setItem(META_KEY,JSON.stringify(next)); };
   const saveFilters = (next:InboxFilters) => { setFilters(next); localStorage.setItem(FILTER_KEY,JSON.stringify(next)); };
   const toggleFilter = (key:'placeTypes'|'timeBands'|'statuses'|'regions',value:string) => {
     const current = filters[key] as string[];
