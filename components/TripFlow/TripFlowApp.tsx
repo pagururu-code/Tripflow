@@ -3,13 +3,13 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Camera, Clock3, Download, Inbox, MapPin, Menu, Navigation, Plane, Plus, Search, Sparkles, Trash2, TrainFront, X } from 'lucide-react';
 import RegisterSW from '@/app/register-sw';
-import GoogleMapsImport from '@/components/GoogleMaps/GoogleMapsImport';
-import type { AppData, InboxItem, Schedule, Trip } from '@/types';
-import { datesBetween as dates, localToday, parseLocalDate } from '@/utils/date';
-import { formatDuration as dur, toMinutes as toMin, toTime } from '@/utils/time';
-import { useTrips } from '@/hooks/useTrips';
+import GoogleMapsImport from '@/components/GoogleMapsImport';
+import type { AppData, InboxItem, Schedule, Trip } from '@/lib/types';
 
 const uid = () => crypto.randomUUID();
+const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+const toTime = (n: number) => `${String(Math.floor(n / 60) % 24).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+const dur = (n: number) => `${Math.floor(n / 60) ? Math.floor(n / 60) + '시간 ' : ''}${n % 60 ? n % 60 + '분' : ''}`.trim();
 
 const seedTrip: Trip = { id: 'trip-demo', title: '삿포로 여름휴가', startDate: '2026-08-14', endDate: '2026-08-17', city: '삿포로', dayStart: '09:00', dayEnd: '21:00', travelMode: 'TRANSIT' };
 const seed: AppData = { activeTripId: seedTrip.id, trips: [seedTrip], schedules: [
@@ -21,16 +21,24 @@ const seed: AppData = { activeTripId: seedTrip.id, trips: [seedTrip], schedules:
   { id: 'i2', tripId: seedTrip.id, title: '다누키코지 쇼핑', duration: 90, type: 'place', priority: 2, address: '다누키코지 상점가' }
 ] };
 
+function parseLocalDate(value: string) { const [y, m, d] = value.split('-').map(Number); return new Date(y, m - 1, d); }
+function formatLocalDate(value: Date) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
+function dates(a: string, b: string) { const out: string[] = []; for (let d = parseLocalDate(a), last = parseLocalDate(b); d <= last; d.setDate(d.getDate() + 1)) out.push(formatLocalDate(d)); return out; }
+function localToday() { return formatLocalDate(new Date()); }
 
-export default function TripFlowApp() {
-  const { data, setData, dayTitles, setDayTitles } = useTrips(seed);
+export default function Home() {
+  const [data, setData] = useState<AppData>(seed);
+  const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState<'schedule'|'map'|'inbox'|'settings'>('schedule');
   const [modal, setModal] = useState<string|null>(null);
   const [date, setDate] = useState('2026-08-15');
   const [gap, setGap] = useState<{start:string;end:string}|null>(null);
   const [editing, setEditing] = useState<Schedule|null>(null);
   const [editingInbox, setEditingInbox] = useState<InboxItem|null>(null);
+  const [dayTitles, setDayTitles] = useState<Record<string,{icon:string;title:string}>>({});
 
+  useEffect(() => { try { const r = localStorage.getItem('tripflow-v2'); if (r) setData(JSON.parse(r)); const dt = localStorage.getItem('tripflow-day-titles-v1'); if (dt) setDayTitles(JSON.parse(dt)); } catch {} setLoaded(true); }, []);
+  useEffect(() => { if (loaded) { localStorage.setItem('tripflow-v2', JSON.stringify(data)); localStorage.setItem('tripflow-day-titles-v1', JSON.stringify(dayTitles)); } }, [data, dayTitles, loaded]);
 
   const trip = data.trips.find(t => t.id === data.activeTripId) || data.trips[0];
   const allDates = dates(trip.startDate, trip.endDate);

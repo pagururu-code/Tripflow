@@ -1,5 +1,5 @@
 import TripFlowApp from '@/components/TripFlow/TripFlowApp';
 
-export default function Home() {
+export default function Page() {
   return <TripFlowApp />;
 }
