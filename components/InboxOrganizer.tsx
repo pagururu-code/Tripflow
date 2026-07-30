@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, FolderHeart, MapPin, Pencil, Plus, X } from 'lucide-react';
 import type { AppData, InboxItem } from '@/lib/types';
-import { placeEmoji } from '@/utils/emoji';
+import { leadingEmoji, placeEmoji, stripLeadingEmoji } from '@/utils/emoji';
 import { businessDayForDate, closedDays, datesInRange, descriptionForDate, timeBadge, visitableDates } from '@/lib/businessHours';
 
 type Bucket = { id:string; tripId:string; name:string; emoji:string };
@@ -66,7 +66,7 @@ function Card({item,icon,region,showBusinessInfo,onIcon,onOpen}:{item:InboxItem;
   const badge = timeBadge(item.openingHours,new Date());
   return <article className="tf-organizer-card" role="button" tabIndex={0} onClick={onOpen} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onOpen();}}}>
     <button className="tf-card-emoji" aria-label={`${item.title} 아이콘 변경`} aria-haspopup="dialog" onKeyDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();onIcon();}}>{icon}</button>
-    <div className="tf-card-copy"><h3>{item.title}</h3><p><span>{region}{item.placeType ? ` · ${item.placeType}` : ''}</span>{showBusinessInfo&&(closures.length>0||badge)&&<small>{closures.length>0&&`${closures.join('·')} 휴무`}{closures.length>0&&badge&&' · '}{badge}</small>}</p></div>
+    <div className="tf-card-copy"><h3>{stripLeadingEmoji(item.title)}</h3><p><span>{region}{item.placeType ? ` · ${item.placeType}` : ''}</span>{showBusinessInfo&&(closures.length>0||badge)&&<small>{closures.length>0&&`${closures.join('·')} 휴무`}{closures.length>0&&badge&&' · '}{badge}</small>}</p></div>
   </article>;
 }
 
@@ -128,7 +128,7 @@ export default function InboxOrganizer() {
     if (icon) next[item.id] = icon; else delete next[item.id];
     setIcons(next); localStorage.setItem(ICON_KEY,JSON.stringify(next)); setIconPicker(null); setShowCustomIcon(false);
   };
-  const card = (item:InboxItem) => <Card key={item.id} item={item} icon={icons[item.id]||placeEmoji(item.title,item.placeType)} region={meta[item.id]?.region||(trip?inferRegion(item,trip.city):'지역 미정')} showBusinessInfo={showBusinessInfo} onIcon={()=>{setIconPicker(item);setShowCustomIcon(false);}} onOpen={()=>openDetail(item)}/>;
+  const card = (item:InboxItem) => <Card key={item.id} item={item} icon={icons[item.id]||leadingEmoji(item.title)||placeEmoji(item.title,item.placeType)} region={meta[item.id]?.region||(trip?inferRegion(item,trip.city):'지역 미정')} showBusinessInfo={showBusinessInfo} onIcon={()=>{setIconPicker(item);setShowCustomIcon(false);}} onOpen={()=>openDetail(item)}/>;
   const openOriginal = (item:InboxItem) => {
     const index = items.findIndex(entry => entry.id === item.id);
     const cards = document.querySelectorAll<HTMLElement>('.tf-organized-inbox > .inbox-card');

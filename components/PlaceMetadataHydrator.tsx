@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import type { AppData } from '@/lib/types';
+import type { AppData, InboxItem, Schedule } from '@/lib/types';
 
 const APP_KEY = 'tripflow-v2';
 
@@ -31,6 +31,50 @@ function extractType(mapUrl?: string) {
 export default function PlaceMetadataHydrator() {
   useEffect(() => {
     let lastRaw = '';
+    const attempted = new Set<string>();
+    const isGooglePlace = (item: InboxItem | Schedule) => {
+      if (item.openingHours?.length || !item.mapUrl || attempted.has(item.id)) return false;
+      try {
+        const host = new URL(item.mapUrl).hostname;
+        return /(^|\.)google\.[^/]+$|(^|\.)goo\.gl$/.test(host) || host === 'maps.app.goo.gl';
+      } catch { return false; }
+    };
+    const enrich = async (item: InboxItem | Schedule, city: string, collection: 'inbox' | 'schedules') => {
+      attempted.add(item.id);
+      try {
+        const response = await fetch('/api/import/google-place', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: item.mapUrl, city }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.place?.openingHours?.length) return;
+        const currentRaw = localStorage.getItem(APP_KEY);
+        if (!currentRaw) return;
+        const current = JSON.parse(currentRaw) as AppData;
+        const next = {
+          ...current,
+          [collection]: current[collection].map(entry => entry.id === item.id ? {
+            ...entry,
+            openingHours: result.place.openingHours,
+            placeType: entry.placeType || result.place.placeType,
+          } : entry),
+        };
+        const nextRaw = JSON.stringify(next);
+        lastRaw = nextRaw;
+        localStorage.setItem(APP_KEY, nextRaw);
+        window.dispatchEvent(new StorageEvent('storage', { key: APP_KEY, newValue: nextRaw }));
+      } catch {}
+    };
+    const enrichMissing = (data: AppData) => {
+      const trip = data.trips.find(item => item.id === data.activeTripId) || data.trips[0];
+      if (!trip) return;
+      const candidates = [
+        ...data.inbox.filter(isGooglePlace).map(item => ({ item, collection: 'inbox' as const })),
+        ...data.schedules.filter(isGooglePlace).map(item => ({ item, collection: 'schedules' as const })),
+      ];
+      candidates.forEach(({ item, collection }) => { void enrich(item, trip.city, collection); });
+    };
     const sync = () => {
       const raw = localStorage.getItem(APP_KEY) || '';
       if (!raw || raw === lastRaw) return;
@@ -56,6 +100,7 @@ export default function PlaceMetadataHydrator() {
           localStorage.setItem(APP_KEY, nextRaw);
           window.dispatchEvent(new StorageEvent('storage', { key: APP_KEY, newValue: nextRaw }));
         }
+        enrichMissing(next);
       } catch {}
     };
     sync();

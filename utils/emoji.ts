@@ -1,5 +1,13 @@
 export const hasLeadingEmoji = (value = '') => /^\s*\p{Extended_Pictographic}/u.test(value);
 
+export const leadingEmoji = (value = '') => {
+  const match = value.trim().match(/^([\p{Extended_Pictographic}\uFE0F\u200D]+)/u);
+  return match?.[1] || '';
+};
+
+export const stripLeadingEmoji = (value = '') =>
+  value.replace(/^\s*[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, '').trim();
+
 export const placeEmoji = (title = '', placeType = '') => {
   const value = `${title} ${placeType}`.toLocaleLowerCase();
   if (/(cafe|coffee|bakery|dessert|카페|커피|베이커리|제과|디저트|喫茶|珈琲|パン|菓子)/i.test(value)) return '☕';
