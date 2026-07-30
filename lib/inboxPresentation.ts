@@ -1,7 +1,7 @@
 import type { InboxItem, Schedule } from '@/lib/types';
 import { leadingEmoji, placeEmoji, stripLeadingEmoji } from '@/utils/emoji';
 
-export type InboxItemMeta = { region?:string; bucketIds?:string[] };
+export type InboxItemMeta = { region?:string; bucketIds?:string[]; favorite?:boolean; note?:string };
 export type InboxMetaMap = Record<string,InboxItemMeta>;
 export type InboxIconMap = Record<string,string>;
 
@@ -51,6 +51,17 @@ function matchingInbox(item:Pick<Schedule,'id'|'title'|'address'>,inbox:InboxIte
   return inbox.find(candidate => candidate.id === item.id)
     || sameTitle.find(candidate => !address || !candidate.address || normalize(candidate.address) === address)
     || (sameTitle.length === 1 ? sameTitle[0] : undefined);
+}
+
+export function isInboxItemPlaced(item:Pick<InboxItem,'id'|'title'|'address'>,schedules:Schedule[]) {
+  const title = normalize(stripLeadingEmoji(item.title));
+  const address = normalize(item.address || '');
+  return schedules.some(schedule => {
+    if (schedule.id === item.id) return true;
+    if (normalize(stripLeadingEmoji(schedule.title)) !== title) return false;
+    const scheduleAddress = normalize(schedule.address || '');
+    return !address || !scheduleAddress || address === scheduleAddress;
+  });
 }
 
 export function inboxPlaceIcon(
