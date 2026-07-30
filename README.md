@@ -49,6 +49,10 @@ GitHub는 필수가 아닙니다. 위 명령으로 폴더를 직접 Vercel에 �
 - 실제 지도 자체를 앱 안에 렌더링하기보다 장소 목록에서 Google Maps로 여는 안전한 기본 구조입니다.
 - 이동시간은 현재 기본 예상 20분입니다. Routes API 자동 재계산은 서버 호출 비용과 교통수단별 제약 때문에 별도 확장 지점으로 남겨두었습니다.
 
+## Google Maps 저장목록 Safari Extension
+
+iOS Safari에서 열려 있는 Google Maps 저장목록을 Places API로 보강하고 Inbox로 전달하는 Web Extension은 `safari-extension/`에 있습니다. 설치법과 실기기 검증표는 [`docs/google-maps-safari-extraction.md`](docs/google-maps-safari-extraction.md)를 참고하세요.
+
 
 ## v1.1 예약 이미지 분석
 

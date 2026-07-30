@@ -10,6 +10,7 @@ const uid = () => crypto.randomUUID();
 const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const toTime = (n: number) => `${String(Math.floor(n / 60) % 24).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
 const dur = (n: number) => `${Math.floor(n / 60) ? Math.floor(n / 60) + '시간 ' : ''}${n % 60 ? n % 60 + '분' : ''}`.trim();
+const placeKey = (title = '', address = '', mapUrl = '') => mapUrl || `${title}|${address}`.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}|]/gu, '');
 
 const seedTrip: Trip = { id: 'trip-demo', title: '삿포로 여름휴가', startDate: '2026-08-14', endDate: '2026-08-17', city: '삿포로', dayStart: '09:00', dayEnd: '21:00', travelMode: 'TRANSIT' };
 const seed: AppData = { activeTripId: seedTrip.id, trips: [seedTrip], schedules: [
@@ -39,6 +40,33 @@ export default function Home() {
 
   useEffect(() => { try { const r = localStorage.getItem('tripflow-v2'); if (r) setData(JSON.parse(r)); const dt = localStorage.getItem('tripflow-day-titles-v1'); if (dt) setDayTitles(JSON.parse(dt)); } catch {} setLoaded(true); }, []);
   useEffect(() => { if (loaded) { localStorage.setItem('tripflow-v2', JSON.stringify(data)); localStorage.setItem('tripflow-day-titles-v1', JSON.stringify(dayTitles)); } }, [data, dayTitles, loaded]);
+  useEffect(() => {
+    if (!loaded || !location.hash.startsWith('#browser-import=')) return;
+    const encoded = location.hash.slice('#browser-import='.length);
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+    try {
+      const result = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(encoded)))));
+      if (!Array.isArray(result.places)) throw new Error('invalid payload');
+      let added = 0, duplicates = Number(result.duplicates) || 0;
+      setData(current => {
+        const tripId = current.activeTripId;
+        const known = new Set(current.inbox.filter(item => item.tripId === tripId).map(item => placeKey(item.title, item.address, item.mapUrl)));
+        const imported: InboxItem[] = result.places.flatMap((place: any) => {
+          const key = placeKey(String(place.title || ''), String(place.address || ''), String(place.mapUrl || ''));
+          if (!place.title || known.has(key)) { duplicates += 1; return []; }
+          known.add(key); added += 1;
+          return [{ id: uid(), tripId, title: String(place.title), duration: 60, type: 'place', priority: 2,
+            address: place.address, location: place.location, openingHours: place.openingHours,
+            placeType: place.placeType, mapUrl: place.mapUrl, source: 'google-maps' }];
+        });
+        return { ...current, inbox: [...current.inbox, ...imported] };
+      });
+      setTab('inbox');
+      setTimeout(() => alert(`${added}개 추가 완료\n중복 ${duplicates}개 제외\n실패 ${Number(result.failed) || 0}개`));
+    } catch {
+      alert('Extension에서 받은 장소 데이터를 읽지 못했어요. 다시 가져와 주세요.');
+    }
+  }, [loaded]);
 
   const trip = data.trips.find(t => t.id === data.activeTripId) || data.trips[0];
   const allDates = dates(trip.startDate, trip.endDate);

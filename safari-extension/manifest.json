@@ -1,0 +1,26 @@
+{
+  "manifest_version": 2,
+  "name": "TripFlow Maps List Extractor",
+  "version": "0.1.0",
+  "description": "Extract place names and individual links from an open Google Maps saved list.",
+  "permissions": [
+    "activeTab",
+    "clipboardWrite",
+    "storage",
+    "https://www.google.com/maps/*",
+    "https://www.google.co.kr/maps/*"
+  ],
+  "optional_permissions": ["https://*/*"],
+  "browser_action": {
+    "default_title": "TripFlow으로 추출",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.google.com/maps/*", "https://www.google.co.kr/maps/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": ["page-hook.js"]
+}
