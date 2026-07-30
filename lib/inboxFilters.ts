@@ -9,10 +9,11 @@ export type InboxFilters = {
   closure:'any'|'has'|'none';
   statuses:BusinessStatus[];
   regions:string[];
+  placement:'all'|'unplaced'|'placed';
 };
 
 export const EMPTY_INBOX_FILTERS:InboxFilters = {
-  placeTypes:[], timeBands:[], closure:'any', statuses:[], regions:[],
+  placeTypes:[], timeBands:[], closure:'any', statuses:[], regions:[], placement:'all',
 };
 
 export function normalizeFilters(value:Partial<InboxFilters>|null|undefined):InboxFilters {
@@ -23,12 +24,13 @@ export function normalizeFilters(value:Partial<InboxFilters>|null|undefined):Inb
     closure:value?.closure === 'has' || value?.closure === 'none' ? value.closure : 'any',
     statuses:list<BusinessStatus>(value?.statuses),
     regions:list(value?.regions),
+    placement:value?.placement === 'unplaced' || value?.placement === 'placed' ? value.placement : 'all',
   };
 }
 
 export function activeFilterCount(filters:InboxFilters) {
   return filters.placeTypes.length + filters.timeBands.length + filters.statuses.length
-    + filters.regions.length + (filters.closure === 'any' ? 0 : 1);
+    + filters.regions.length + (filters.closure === 'any' ? 0 : 1) + (filters.placement === 'all' ? 0 : 1);
 }
 
 export function businessStatus(item:InboxItem, now:Date):BusinessStatus|'' {
@@ -51,11 +53,13 @@ export function timeBand(item:InboxItem, now:Date):TimeBand|'' {
   return '';
 }
 
-export function matchesInboxFilters(item:InboxItem, region:string, query:string, filters:InboxFilters, now:Date) {
+export function matchesInboxFilters(item:InboxItem, region:string, query:string, filters:InboxFilters, now:Date,placed=false) {
   const searchable = `${item.title} ${item.address || ''} ${item.placeType || ''} ${region}`.toLocaleLowerCase();
   if (query && !searchable.includes(query.toLocaleLowerCase())) return false;
   if (filters.placeTypes.length && (!item.placeType || !filters.placeTypes.includes(item.placeType))) return false;
   if (filters.regions.length && !filters.regions.includes(region)) return false;
+  if (filters.placement === 'placed' && !placed) return false;
+  if (filters.placement === 'unplaced' && placed) return false;
   const band = timeBand(item,now);
   if (filters.timeBands.length && (!band || !filters.timeBands.includes(band))) return false;
   const status = businessStatus(item,now);
