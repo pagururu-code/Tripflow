@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <main>
+    <h1>Google Maps 저장목록</h1>
+    <p id="status">열린 목록에서 장소를 찾습니다.</p>
+    <label class="endpoint">TripFlow 주소<input id="tripflow-url" type="url" placeholder="https://tripflow.example.com"></label>
+    <button id="extract">장소 찾기</button>
+    <button id="import" disabled>TripFlow 가져오기</button>
+    <button id="copy" class="secondary" disabled>JSON 복사</button>
+    <ol id="places"></ol>
+    <details><summary>진단</summary><pre id="diagnostics"></pre></details>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
