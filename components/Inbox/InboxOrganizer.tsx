@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, FolderHeart, MapPin, Pencil, Plus, X } from 'lucide-react';
-import type { AppData, InboxItem } from '@/lib/types';
+import type { AppData, Bucket, InboxItem } from '@/types';
 
-type Bucket = { id:string; tripId:string; name:string; emoji:string };
 type ItemMeta = { region?:string; bucketIds?:string[] };
 type MetaMap = Record<string, ItemMeta>;
 type ViewMode = 'all'|'region'|'bucket';
