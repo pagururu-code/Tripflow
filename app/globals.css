@@ -135,6 +135,7 @@ header p,.muted,.sub{color:var(--muted)}
 .inbox-card span{color:var(--sage-700)}
 .empty{color:#899488}
 nav{
+  z-index:10;
   background:rgba(255,254,250,.92);
   border-top-color:rgba(95,119,93,.12);
   box-shadow:0 -8px 26px rgba(55,76,57,.06);
