@@ -245,10 +245,12 @@ hr{border-top-color:var(--line)}
 }
 .day-title.empty-title:hover{background:transparent}
 
-/* Slightly lighter and more compact than the previous large-card treatment */
-.summary{gap:12px}
-.summary>div{padding:16px 18px;border-radius:20px}
-.summary b{font-size:20px}
+/* Keep timeline totals compact so they do not dominate the schedule. */
+.summary{gap:8px}
+.summary>div{padding:10px 12px;border-radius:16px;grid-template-columns:20px minmax(0,1fr);gap:2px 5px}
+.summary svg{width:18px;height:18px}
+.summary span{font-size:12px}
+.summary b{font-size:17px;line-height:1.25}
 .schedule-card{border-radius:22px;padding:18px 18px}
 .schedule-card h3{font-size:18px;line-height:1.28}
 .schedule-card p{font-size:14px}
