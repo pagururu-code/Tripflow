@@ -63,8 +63,8 @@ export default function TimelineDisplayEnhancements() {
 
     .timeline-place-note {
       margin: 6px 0 0;
-      color: var(--muted);
-      font-size: 13px;
+      color: #87918b;
+      font-size: 11px;
       line-height: 1.45;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
