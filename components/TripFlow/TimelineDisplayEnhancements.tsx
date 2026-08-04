@@ -38,7 +38,7 @@ function syncTimelineNotes() {
       card.appendChild(noteElement);
     }
 
-    noteElement.textContent = note;
+    if (noteElement.textContent !== note) noteElement.textContent = note;
   });
 }
 
