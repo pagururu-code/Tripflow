@@ -13,6 +13,38 @@ function readTripData() {
   try { return JSON.parse(localStorage.getItem('tripflow-v2') || 'null'); } catch { return null; }
 }
 
+function dateParts(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return { year, month, day };
+}
+
+function dayOffset(from: string, to: string) {
+  const a = dateParts(from), b = dateParts(to);
+  return Math.round((Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / 86400000);
+}
+
+function shiftDate(value: string, days: number) {
+  const { year, month, day } = dateParts(value);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}`;
+}
+
+function shiftDayTitles(tripId: string, days: number) {
+  if (!days) return;
+  try {
+    const raw = localStorage.getItem('tripflow-day-titles-v1');
+    if (!raw) return;
+    const current = JSON.parse(raw) as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    Object.entries(current).forEach(([key, value]) => {
+      const prefix = `${tripId}:`;
+      if (key.startsWith(prefix)) next[`${prefix}${shiftDate(key.slice(prefix.length), days)}`] = value;
+      else next[key] = value;
+    });
+    localStorage.setItem('tripflow-day-titles-v1', JSON.stringify(next));
+  } catch {}
+}
+
 function addTripEditor(tripsModal: HTMLElement) {
   if (tripsModal.querySelector('[data-tripflow-trip-editor]')) return;
   const data = readTripData();
@@ -22,7 +54,7 @@ function addTripEditor(tripsModal: HTMLElement) {
   const editor = document.createElement('section');
   editor.setAttribute('data-tripflow-trip-editor', '');
   editor.className = 'trip-menu-editor';
-  editor.innerHTML = `<h3>현재 여행 수정</h3><label>여행 제목<input data-trip-title value=""></label><div class="two"><label>시작일<input data-trip-start type="date" value=""></label><label>종료일<input data-trip-end type="date" value=""></label></div><button type="button" class="primary full" data-trip-save>변경사항 저장</button>`;
+  editor.innerHTML = `<h3>현재 여행 수정</h3><label>여행 제목<input data-trip-title value=""></label><div class="two"><label>시작일<input data-trip-start type="date" value=""></label><label>종료일<input data-trip-end type="date" value=""></label></div><p class="trip-date-shift-hint">시작일을 바꾸면 기존 일정과 날짜별 소제목도 같은 일수만큼 함께 이동해요.</p><button type="button" class="primary full" data-trip-save>변경사항 저장</button>`;
   const title = editor.querySelector<HTMLInputElement>('[data-trip-title]')!;
   const start = editor.querySelector<HTMLInputElement>('[data-trip-start]')!;
   const end = editor.querySelector<HTMLInputElement>('[data-trip-end]')!;
@@ -34,9 +66,16 @@ function addTripEditor(tripsModal: HTMLElement) {
     if (start.value > end.value) return alert('종료일은 시작일보다 빠를 수 없어요.');
     const latest = readTripData();
     if (!latest) return;
+    const latestTrip = latest.trips.find((item: any) => item.id === trip.id) || trip;
+    const offset = dayOffset(latestTrip.startDate, start.value);
     latest.trips = latest.trips.map((item: any) => item.id === trip.id ? { ...item, title: title.value.trim(), startDate: start.value, endDate: end.value } : item);
-    localStorage.setItem('tripflow-v2', JSON.stringify(latest));
-    window.dispatchEvent(new StorageEvent('storage', { key: 'tripflow-v2', newValue: JSON.stringify(latest) }));
+    if (offset) {
+      latest.schedules = latest.schedules.map((item: any) => item.tripId === trip.id && item.date ? { ...item, date: shiftDate(item.date, offset) } : item);
+      shiftDayTitles(trip.id, offset);
+    }
+    const serialized = JSON.stringify(latest);
+    localStorage.setItem('tripflow-v2', serialized);
+    window.dispatchEvent(new StorageEvent('storage', { key: 'tripflow-v2', newValue: serialized }));
     window.location.reload();
   });
   const firstChoice = tripsModal.querySelector('.trip-choice');
@@ -94,6 +133,7 @@ export default function TimelineUxRefinements() {
     .trip-menu-editor h3 { margin-bottom: 8px; }
     .trip-menu-editor label { margin: 9px 0; }
     .trip-menu-editor .primary { margin-top: 6px; }
+    .trip-date-shift-hint { margin: 4px 0 12px; color: #748078; font-size: 12px; line-height: 1.45; }
     .timeline-subitems { gap:6px;margin-top:9px;margin-bottom:0!important; }
     .timeline-subitem { font-size:13px!important;line-height:1.45!important;color:#536159!important;gap:8px!important;margin-bottom:0!important; }
     .timeline-subitem:before { content:'•'!important;color:#7f8c84!important;font-size:14px;line-height:1.35; }
