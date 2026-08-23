@@ -1,7 +1,37 @@
 'use client';
 
+import { useEffect } from 'react';
+
+function moveSummaryBelowTimeline() {
+  const timeline = document.querySelector<HTMLElement>('main > .timeline');
+  const summary = document.querySelector<HTMLElement>('main > .summary');
+  if (!timeline || !summary || timeline.nextElementSibling === summary) return;
+  timeline.after(summary);
+}
+
 export default function TimelineUxRefinements() {
+  useEffect(() => {
+    moveSummaryBelowTimeline();
+    const observer = new MutationObserver(moveSummaryBelowTimeline);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   return <style jsx global>{`
+    .day-title {
+      margin-left: 12px !important;
+    }
+
+    @media (max-width: 520px) {
+      .day-title {
+        margin-left: 12px !important;
+      }
+    }
+
+    .timeline + .summary {
+      margin: 2px 0 18px;
+    }
+
     .timeline-subitems {
       gap: 6px;
       margin-top: 9px;
