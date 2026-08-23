@@ -51,11 +51,21 @@ export default function TimelineUxRefinements() {
   return <style jsx global>{`
     .day-title {
       margin-left: 12px !important;
+      margin-bottom: 4px !important;
+    }
+
+    .day-title + .timeline {
+      padding-top: 8px !important;
     }
 
     @media (max-width: 520px) {
       .day-title {
         margin-left: 12px !important;
+        margin-bottom: 4px !important;
+      }
+
+      .day-title + .timeline {
+        padding-top: 8px !important;
       }
     }
 
