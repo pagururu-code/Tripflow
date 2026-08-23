@@ -9,10 +9,41 @@ function moveSummaryBelowTimeline() {
   timeline.after(summary);
 }
 
+function moveShareIntoTripsMenu() {
+  const shareButton = document.querySelector<HTMLButtonElement>('button[aria-label="여행 내보내기"]');
+  if (!shareButton) return;
+
+  const tripsModal = Array.from(document.querySelectorAll<HTMLElement>('.modal')).find(
+    modal => modal.querySelector('h2')?.textContent?.trim() === '내 여행',
+  );
+  if (!tripsModal || tripsModal.querySelector('[data-tripflow-share-menu]')) return;
+
+  const menuButton = document.createElement('button');
+  menuButton.type = 'button';
+  menuButton.className = 'trip-choice trip-share-menu-choice';
+  menuButton.setAttribute('data-tripflow-share-menu', '');
+
+  const title = document.createElement('b');
+  title.textContent = '여행 공유';
+  const description = document.createElement('small');
+  description.textContent = 'PDF · PNG로 저장하고 공유하기';
+  menuButton.append(title, description);
+  menuButton.addEventListener('click', () => shareButton.click());
+
+  const divider = tripsModal.querySelector('hr');
+  if (divider) divider.before(menuButton);
+  else tripsModal.appendChild(menuButton);
+}
+
+function syncScheduleUx() {
+  moveSummaryBelowTimeline();
+  moveShareIntoTripsMenu();
+}
+
 export default function TimelineUxRefinements() {
   useEffect(() => {
-    moveSummaryBelowTimeline();
-    const observer = new MutationObserver(moveSummaryBelowTimeline);
+    syncScheduleUx();
+    const observer = new MutationObserver(syncScheduleUx);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
@@ -30,6 +61,26 @@ export default function TimelineUxRefinements() {
 
     .timeline + .summary {
       margin: 2px 0 18px;
+    }
+
+    button[aria-label='여행 내보내기'] {
+      display: none !important;
+    }
+
+    .trip-share-menu-choice {
+      text-align: left;
+      border-color: rgba(95, 119, 93, .12) !important;
+      background: rgba(233, 238, 229, .58) !important;
+    }
+
+    .trip-share-menu-choice b,
+    .trip-share-menu-choice small {
+      display: block;
+    }
+
+    .trip-share-menu-choice small {
+      margin-top: 4px;
+      color: #748078;
     }
 
     .timeline-subitems {
