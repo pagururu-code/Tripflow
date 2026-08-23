@@ -96,6 +96,7 @@ export default function TimelineUxRefinements() {
     .timeline-subitems {
       gap: 6px;
       margin-top: 9px;
+      margin-bottom: 0 !important;
     }
 
     .timeline-subitem {
@@ -103,6 +104,7 @@ export default function TimelineUxRefinements() {
       line-height: 1.45 !important;
       color: #536159 !important;
       gap: 8px !important;
+      margin-bottom: 0 !important;
     }
 
     .timeline-subitem:before {
@@ -110,6 +112,17 @@ export default function TimelineUxRefinements() {
       color: #7f8c84 !important;
       font-size: 14px;
       line-height: 1.35;
+    }
+
+    .compact-schedule-card .tf-place-details,
+    .compact-schedule-card .timeline-place-note {
+      margin-bottom: 0 !important;
+    }
+
+    .timeline-row:has(.timeline-place-note),
+    .timeline-row:has(.tf-place-details),
+    .timeline-row:has(.timeline-subitems) {
+      margin-bottom: 12px !important;
     }
 
     /* Do not show the fit-to-gap option as soon as an empty slot opens. */
